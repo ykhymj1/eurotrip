@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#22303F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>여행 일정 네비</title>
+<link rel="manifest" href='data:application/manifest+json,{"name":"여행 일정 네비","short_name":"여행네비","start_url":".","display":"standalone","background_color":"%23F5F3EE","theme_color":"%2322303F"}'>
+<style>
+:root{
+  --bg:#F5F3EE; --card:#FFFFFF; --ink:#22303F; --sub:#6B7482;
+  --accent:#C46A2B; --accent-soft:#F6E7D8;
+  --hotel:#6E4A5E; --hotel-soft:#F0E6EC;
+  --flight:#3D6B8E; --flight-soft:#E3EDF4;
+  --ok:#3E7C4F; --line:#E4DFD5; --danger:#B04A3A;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR","Malgun Gothic",sans-serif;
+  font-size:16px; line-height:1.45;}
+button{font-family:inherit}
+
+/* ===== 상단 헤더 ===== */
+header{
+  background:var(--ink); color:#F5F3EE; padding:14px 16px 8px;
+  padding-top:calc(14px + env(safe-area-inset-top));
+}
+header h1{margin:0;font-size:18px;font-weight:700;letter-spacing:-.3px}
+.triprow{display:flex;gap:8px;margin-top:10px;align-items:center}
+#tripSel{
+  flex:1;min-width:0;background:rgba(255,255,255,.1);color:#F5F3EE;
+  border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:9px 10px;
+  font-size:14px;font-weight:600;font-family:inherit;
+}
+#tripSel option{color:#22303F}
+.hbtn{
+  flex:0 0 auto;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);
+  color:#F5F3EE;border-radius:10px;padding:9px 12px;font-size:14px;font-weight:700;cursor:pointer;
+}
+.hbtn.pdf{background:var(--accent);border-color:var(--accent)}
+#pdfInput{display:none}
+#parseStatus{font-size:12px;opacity:.8;margin-top:6px;min-height:15px}
+
+/* ===== 날짜 탭 ===== */
+nav.tabs{
+  position:sticky; top:0; z-index:50; background:var(--ink);
+  display:flex; overflow-x:auto; gap:6px; padding:8px 12px 12px;
+  scrollbar-width:none;
+}
+nav.tabs::-webkit-scrollbar{display:none}
+.tab{
+  flex:0 0 auto; border:1px solid rgba(255,255,255,.25); background:transparent;
+  color:#F5F3EE; border-radius:20px; padding:6px 13px; font-size:13px; font-weight:600;
+  cursor:pointer; white-space:nowrap;
+}
+.tab.today{background:var(--accent); border-color:var(--accent); color:#fff}
+
+/* ===== 본문 ===== */
+main{max-width:640px;margin:0 auto;padding:12px 12px 90px}
+
+.empty{
+  text-align:center;color:var(--sub);padding:60px 20px;font-size:14.5px;line-height:1.8;
+}
+
+section.day{margin-bottom:26px}
+.dayhead{display:flex; align-items:baseline; gap:10px; padding:10px 4px 6px;}
+.dayhead .d{font-size:20px;font-weight:800;letter-spacing:-.5px}
+.dayhead .region{font-size:13px;color:var(--sub);font-weight:600}
+.dayhead.is-today .d{color:var(--accent)}
+.todaybadge{font-size:11px;background:var(--accent);color:#fff;border-radius:10px;padding:2px 8px;font-weight:700}
+
+.items{position:relative; padding-left:14px}
+.items::before{
+  content:""; position:absolute; left:4px; top:8px; bottom:8px;
+  width:2px; background:var(--line); border-radius:2px;
+}
+.item{
+  position:relative; background:var(--card); border:1px solid var(--line);
+  border-radius:14px; padding:12px 12px 10px; margin-bottom:10px;
+  box-shadow:0 1px 2px rgba(34,48,63,.05);
+}
+.item::before{
+  content:""; position:absolute; left:-14px; top:18px; width:10px; height:10px;
+  border-radius:50%; background:var(--accent); border:2px solid var(--bg);
+  transform:translateX(-1px);
+}
+.item.hotel::before{background:var(--hotel)}
+.item.flight::before{background:var(--flight)}
+.item.done{opacity:.55}
+.item.done .t-title{text-decoration:line-through}
+
+.row1{display:flex;align-items:flex-start;gap:8px}
+.time{
+  flex:0 0 auto; font-size:13px; font-weight:800; color:var(--accent);
+  background:var(--accent-soft); border-radius:8px; padding:3px 8px; margin-top:1px;
+}
+.item.hotel .time{color:var(--hotel);background:var(--hotel-soft)}
+.item.flight .time{color:var(--flight);background:var(--flight-soft)}
+.t-title{font-size:15.5px;font-weight:700;letter-spacing:-.2px;flex:1;min-width:0;word-break:break-word}
+.t-title .placeholder{color:var(--sub);font-weight:600;font-style:italic}
+.chk{
+  flex:0 0 auto; width:26px;height:26px;border-radius:8px;border:1.5px solid var(--line);
+  background:#fff; cursor:pointer; font-size:15px; line-height:1; color:transparent;
+}
+.item.done .chk{background:var(--ok);border-color:var(--ok);color:#fff}
+
+.desc{font-size:13px;color:var(--sub);margin:6px 2px 0;word-break:break-word}
+.memo{
+  font-size:13px;color:var(--hotel);background:var(--hotel-soft);
+  border-radius:8px;padding:6px 9px;margin-top:7px;white-space:pre-wrap;
+}
+.parkinfo{font-size:12.5px;color:var(--flight);margin-top:6px}
+
+.btnrow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.nav-btn{
+  flex:1 1 auto; min-width:110px; display:flex;align-items:center;justify-content:center;gap:6px;
+  border:none;border-radius:10px;padding:11px 8px;font-size:14px;font-weight:700;cursor:pointer;
+  text-decoration:none; color:#fff;
+}
+.nav-g{background:#1A73E8}
+.nav-a{background:#111}
+.nav-btn.walk{filter:saturate(.6)}
+.edit-btn{
+  flex:0 0 auto; border:1.5px solid var(--line); background:#fff; color:var(--sub);
+  border-radius:10px; padding:11px 12px; font-size:14px; cursor:pointer;
+}
+.del-btn{flex:0 0 auto;border:1.5px solid var(--line);background:#fff;color:var(--danger);border-radius:10px;padding:11px 12px;font-size:14px;cursor:pointer}
+
+.needbook{display:inline-block;font-size:11px;font-weight:800;color:#fff;background:var(--danger);border-radius:8px;padding:2px 7px;margin-left:6px;vertical-align:1px}
+
+.addrow{
+  width:100%; border:1.5px dashed var(--line); background:transparent; color:var(--sub);
+  border-radius:12px; padding:11px; font-size:14px; font-weight:600; cursor:pointer; margin-top:2px;
+}
+
+/* ===== 모달 ===== */
+.overlay{
+  position:fixed; inset:0; background:rgba(34,48,63,.5); z-index:100;
+  display:none; align-items:flex-end; justify-content:center;
+}
+.overlay.show{display:flex}
+.sheet{
+  background:#fff; width:100%; max-width:640px; border-radius:18px 18px 0 0;
+  padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+  max-height:88vh; overflow-y:auto;
+}
+.sheet h3{margin:0 0 6px;font-size:17px}
+.sheet label{display:block;font-size:12.5px;font-weight:700;color:var(--sub);margin:12px 0 4px}
+.sheet input[type=text],.sheet textarea{
+  width:100%; border:1.5px solid var(--line); border-radius:10px; padding:11px;
+  font-size:15px; font-family:inherit; background:var(--bg);
+}
+.sheet textarea{resize:vertical;min-height:60px}
+.hint{font-size:11.5px;color:var(--sub);margin-top:4px}
+.modewrap{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px;font-weight:600}
+.modewrap input{width:20px;height:20px}
+.sheet .btnrow{margin-top:18px}
+.save-btn{flex:1;background:var(--ink);color:#fff;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:pointer}
+.cancel-btn{flex:0 0 auto;background:#fff;border:1.5px solid var(--line);color:var(--sub);border-radius:10px;padding:13px 18px;font-size:15px;cursor:pointer}
+
+footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>여행 일정 네비</h1>
+  <div class="triprow">
+    <select id="tripSel"></select>
+    <button class="hbtn pdf" id="pdfBtn">📄 PDF</button>
+    <button class="hbtn" id="delTripBtn">🗑</button>
+  </div>
+  <div id="parseStatus"></div>
+  <input type="file" id="pdfInput" accept="application/pdf">
+</header>
+<nav class="tabs" id="tabs"></nav>
+
+<main id="main"></main>
+
+<footer>v3 · 📄 PDF 업로드 → 일정 자동 등록 · ✏️ 수정 · ＋ 추가 · 데이터는 이 기기에 저장</footer>
+
+<!-- 편집 모달 -->
+<div class="overlay" id="overlay">
+  <div class="sheet">
+    <h3 id="sheetTitle">일정 편집</h3>
+    <label>시간</label>
+    <input type="text" id="f_time" placeholder="예: 14:30">
+    <label>이름</label>
+    <input type="text" id="f_title" placeholder="예: Hotel Villa Vinum Cochem">
+    <label>네비 목적지 (장소명·주소 또는 위도,경도)</label>
+    <input type="text" id="f_dest" placeholder="예: Hotel Villa Vinum Cochem 또는 50.1450,7.1662">
+    <div class="hint">호텔 예약 후 부킹닷컴의 호텔 이름·주소를 그대로 붙여넣으면 됩니다. 비워두면 이름으로 검색합니다.</div>
+    <label>메모 (예약번호, 개장시간 등)</label>
+    <textarea id="f_memo"></textarea>
+    <div class="modewrap"><input type="checkbox" id="f_walk"><label for="f_walk" style="margin:0">🚶 도보 모드로 네비 열기</label></div>
+    <div class="btnrow">
+      <button class="save-btn" id="saveBtn">저장</button>
+      <button class="cancel-btn" id="cancelBtn">취소</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ================= 내장 일정: 서유럽 (좌표·주차장 조사 완료) ================= */
+var BUILTIN = { id:"builtin_westeu", name:"서유럽 10/8–10/18 (내장)", builtin:true, days:[
+ { date:"2026-10-08", label:"10/8 목", region:"인천 출발", items:[
+   {id:"b_d1a",time:"18:20",type:"flight",title:"인천공항 T1 출발 · 에티하드",desc:"EY 항공 · 아부다비 경유"},
+   {id:"b_d1b",time:"23:05",type:"flight",title:"아부다비 공항 터미널 A 도착"}
+ ]},
+ { date:"2026-10-09", label:"10/9 금", region:"라인·모젤 → 코헴", items:[
+   {id:"b_d2a",time:"02:10",type:"flight",title:"아부다비 터미널 A 출발"},
+   {id:"b_d2b",time:"06:55",type:"flight",title:"프랑크푸르트 T3 도착",lat:50.0295811,lng:8.5808632},
+   {id:"b_d2c",time:"09:00",type:"info",title:"렌트카 픽업 (프랑크푸르트공항 T3)"},
+   {id:"b_d2d",time:"10:30",type:"spot",mode:"d",title:"뤼데스하임 P2 주차장",
+    desc:"라인강 와인마을. 곤돌라(Seilbahn) 타고 니더발트 전망대에서 강 굽이 조망",
+    park:"P2 \"An der Ringmauer/Seilbahn\" · €1.5/h, 1일 최대 €12 · 곤돌라까지 도보 5분",
+    lat:49.9811457,lng:7.9242759,pid:"ChIJU5jdITnvvUcRRQRJhxGAWdo"},
+   {id:"b_d2e",time:"13:00",type:"spot",mode:"d",title:"로렐라이 전망 Maria Ruh · 점심",
+    desc:"전망 포인트는 레스토랑 테라스에서 50m 더 내려가야 잘 보임",
+    park:"Parkplatz Loreleyblick Maria Ruh (Urbar)",
+    lat:50.1346903,lng:7.7222152,pid:"ChIJ3zgLIgB1vkcRFlg2FJvckes"},
+   {id:"b_d2f",time:"15:00",type:"spot",mode:"d",title:"엘츠 성 (Burg Eltz)",
+    desc:"주차장에서 셔틀(€2, 10분 간격) 또는 도보 15분",
+    park:"Parkplatz Burg Eltz (Wierschem) · €4 현금",
+    lat:50.2123039,lng:7.3397959,pid:"ChIJoZ-kjq1pvkcRENWmF-g4Xbs"},
+   {id:"b_d2g",time:"17:30",type:"hotel",title:"코헴 지역 호텔 체크인",editable:true},
+   {id:"b_d2h",time:"18:00",type:"spot",mode:"w",title:"코헴 성 외관 관람",
+    desc:"라이히스부르크 코헴 · 야경 외관만",lat:50.14226,lng:7.167048}
+ ]},
+ { date:"2026-10-10", label:"10/10 토", region:"모젤 → 룩셈부르크", items:[
+   {id:"b_d3a",time:"10:00",type:"info",title:"호텔 체크아웃",desc:"일찍 나오면 코헴성 내부투어 가능 (9:30 개장, 가이드투어 €10)"},
+   {id:"b_d3b",time:"11:00",type:"spot",mode:"d",title:"베른카스텔-쿠스",
+    desc:"중세 목조가옥 광장 + 포도밭 언덕. 모젤 와인, 그림형제 동화마을 분위기",
+    park:"Moselparkplatz (Gestade 19) · 강변, 광장까지 도보 2분",
+    lat:49.9145679,lng:7.0741003,pid:"ChIJF9U5LJglvkcRUchJ1jyA3cM"},
+   {id:"b_d3c",time:"14:30",type:"hotel",title:"룩셈부르크 호텔 체크인",editable:true},
+   {id:"b_d3d",time:"15:00",type:"spot",mode:"w",title:"슈맹 드 라 코르니슈",
+    desc:"협곡 위 옛 성벽 산책로 + 보크 포대(Bock Casemates) · 구시가 유네스코",
+    lat:49.6101047,lng:6.1343636},
+   {id:"b_d3e",time:"16:30",type:"spot",mode:"w",title:"파펜탈 파노라마 엘리베이터",
+    desc:"무료 · 71m 유리 전망대",lat:49.6153672,lng:6.1297009}
+ ]},
+ { date:"2026-10-11", label:"10/11 일", region:"뮐레르탈 → 비안덴 → 뒤르뷔", items:[
+   {id:"b_d4a",time:"10:00",type:"info",title:"호텔 체크아웃"},
+   {id:"b_d4b",time:"10:30",type:"spot",mode:"d",title:"쉬센튐펠 폭포 (Schiessentümpel)",
+    desc:"이끼 낀 바위와 3단 폭포 · 숲길 트레킹 약 1시간",
+    park:"폭포 앞 도로(CR121)변 주차장에서 수백 m 산책로",
+    lat:49.7851534,lng:6.2993556,pid:"ChIJsQpVKkZZlUcREsdpomBU7Ac"},
+   {id:"b_d4c",time:"12:00",type:"spot",mode:"d",title:"홀레이 동굴 (Hohllay Cave)",
+    desc:"베르도르프 · 숲속 사암 동굴 + 야외극장",lat:49.8150886,lng:6.3594891},
+   {id:"b_d4d",time:"14:00",type:"spot",mode:"d",title:"비안덴 성 (Vianden Castle)",
+    desc:"11세기 고성 · 마을·계곡 단풍 전망. 오디오가이드 €2 추천 · 주차장 소규모, 일찍 도착 권장",
+    lat:49.9350345,lng:6.2027224,pid:"ChIJAViZ7X37v0cRIr2yg5fv88M"},
+   {id:"b_d4e",time:"17:00",type:"hotel",title:"뒤르뷔(Durbuy) 지역 호텔 체크인",editable:true,
+    desc:"벨기에에서 가장 작은 도시 · 저녁 구시가 산책 추천"}
+ ]},
+ { date:"2026-10-12", label:"10/12 월", region:"디낭 → 겐트", items:[
+   {id:"b_d5a",time:"10:00",type:"info",title:"호텔 체크아웃"},
+   {id:"b_d5b",time:"11:00",type:"spot",mode:"d",title:"디낭 요새 (Citadelle de Dinant)",
+    desc:"절벽 요새 + 강변 성당 · 케이블카로 뫼즈강 협곡 조망 · 색소폰 발명가 삭스의 고향. 입장+케이블카 통합권",
+    park:"요새 상부 무료주차장 → 케이블카로 하강",
+    lat:50.2619884,lng:4.9149324,pid:"ChIJD5WgSwC_wUcR02A_yz3WeNw"},
+   {id:"b_d5c",time:"15:00",type:"hotel",title:"겐트 지역 호텔 체크인",editable:true},
+   {id:"b_d5d",time:"18:00",type:"spot",mode:"w",title:"성 미카엘 다리 (St Michael's Bridge)",
+    desc:"운하변 중세 길드하우스 · 세 개의 탑 일직선 뷰 · 해질녘~야간 조명이 하이라이트",
+    lat:51.0538849,lng:3.7205421}
+ ]},
+ { date:"2026-10-13", label:"10/13 화", region:"겐트 → 브뤼헤", items:[
+   {id:"b_d6a",time:"10:00",type:"info",title:"호텔 체크아웃"},
+   {id:"b_d6b",time:"10:30",type:"spot",mode:"w",title:"그라벤스틴 성 (Gravensteen)",
+    desc:"운하에 둘러싸인 중세 성 · 성벽 위 겐트 시가지 전망 · 온라인 사전예약 강력 권장 (시간제 입장)",
+    lat:51.0571769,lng:3.7207225},
+   {id:"b_d6c",time:"13:00",type:"info",title:"겐트에서 점심 후 출발"},
+   {id:"b_d6d",time:"15:00",type:"hotel",title:"브뤼헤 지역 호텔 체크인",editable:true},
+   {id:"b_d6e",time:"16:00",type:"spot",mode:"w",title:"브뤼헤 종탑 (Belfort)",book:true,
+    desc:"366계단 · 마르크트 광장 · 시간제 티켓, 당일 매진 잦음 → 사전예약 필수. 운하 보트투어도 필수",
+    lat:51.2081466,lng:3.2248011}
+ ]},
+ { date:"2026-10-14", label:"10/14 수", region:"브뤼헤 → 델프트 → 헤이그", items:[
+   {id:"b_d7a",time:"10:00",type:"info",title:"호텔 체크아웃 후 시내 구경"},
+   {id:"b_d7b",time:"10:30",type:"spot",mode:"w",title:"민네바터 (Minnewater) · 베긴회 수도원",
+    desc:"'사랑의 호수' + 운하 골목 산책",lat:51.2000104,lng:3.2247317},
+   {id:"b_d7c",time:"14:00",type:"info",title:"점심 후 이동 (약 2시간 30분 운전)"},
+   {id:"b_d7d",time:"15:30",type:"spot",mode:"d",title:"델프트 (Delft) 마을",
+    desc:"푸른 도자기 마을 · Stadhuis, Nieuwe Kerk, Vermeer Centrum, Oostpoort, Beestenmarkt, 로열델프트",
+    park:"구시가는 차량 제한 · 마르크트 인근 공영주차장(Parking Markt 등) 이용",
+    lat:52.0114446,lng:4.3584474},
+   {id:"b_d7e",time:"18:00",type:"hotel",title:"헤이그 지역 호텔 체크인",editable:true}
+ ]},
+ { date:"2026-10-15", label:"10/15 목", region:"헤이그 → 잔세스칸스 → 반납", items:[
+   {id:"b_d8a",time:"10:00",type:"info",title:"호텔 체크아웃"},
+   {id:"b_d8b",time:"10:30",type:"spot",mode:"d",title:"마우리츠하위스 미술관",book:true,
+    desc:"진주 귀걸이를 한 소녀, 렘브란트 · 예약 필수",
+    lat:52.0804322,lng:4.3143148,pid:"ChIJEa9zVSO3xUcRXKUtUE5Qgbk"},
+   {id:"b_d8c",time:"12:00",type:"spot",mode:"w",title:"에셔 미술관 (Escher in The Palace)",
+    desc:"옛 왕궁 건물 · 도보 3분 거리",lat:52.0834729,lng:4.3143047},
+   {id:"b_d8d",time:"13:00",type:"spot",mode:"w",title:"평화궁 (Peace Palace)",
+    desc:"국제사법재판소 · 외관+방문자센터(무료) · 도보 약 20분 또는 차량 이동",
+    lat:52.0869417,lng:4.2954651},
+   {id:"b_d8e",time:"15:00",type:"spot",mode:"d",title:"잔세스칸스 풍차마을",
+    desc:"약 1시간 운전 · 풍차 내부 관람 가능",
+    park:"전용 주차장 €15 정액 · 성수기 혼잡, 만차 시 인근 Zaandijk역 P+R 대안",
+    lat:52.4732945,lng:4.8219946,pid:"ChIJnwhGXQD9xUcRG2F_Lz6NnK4"},
+   {id:"b_d8f",time:"18:00",type:"spot",mode:"d",title:"스키폴 공항 렌트카 반납",
+    desc:"P3 렌터카 리턴 표지판 따라 진입 · 연료 가득 채워 반납",
+    lat:52.307944,lng:4.7677391},
+   {id:"b_d8g",time:"20:00",type:"hotel",title:"암스테르담 호텔 체크인",editable:true,
+    desc:"공항→시내 기차 15분 (Amsterdam Centraal)"}
+ ]},
+ { date:"2026-10-16", label:"10/16 금", region:"암스테르담 시내 (도보·트램)", items:[
+   {id:"b_d9a",time:"09:00",type:"spot",mode:"w",title:"안네 프랑크의 집",book:true,
+    desc:"예약 필수 · 6주 전 오픈 즉시 매진 수준, 오전 첫 타임 추천",
+    lat:52.3752182,lng:4.8839765},
+   {id:"b_d9b",time:"11:00",type:"spot",mode:"w",title:"The 9 Streets (De 9 Straatjes)",
+    desc:"운하 사이 쇼핑 골목",q:"De 9 Straatjes Amsterdam"},
+   {id:"b_d9c",time:"13:30",type:"spot",mode:"w",title:"반 고흐 미술관",book:true,
+    desc:"예약 필수 · 오디오가이드 €3.75 추천",lat:52.3580757,lng:4.8812053},
+   {id:"b_d9d",time:"15:30",type:"spot",mode:"w",title:"요르단(Jordaan) 지구 산책",
+    q:"Jordaan Amsterdam"},
+   {id:"b_d9e",time:"16:30",type:"spot",mode:"w",title:"NEMO 과학관",
+    desc:"옥상 전망대는 무료 개방",lat:52.3741709,lng:4.912325},
+   {id:"b_d9f",time:"17:30",type:"spot",mode:"w",title:"네덜란드 왕궁 (담 광장)",
+    lat:52.3731835,lng:4.8913758}
+ ]},
+ { date:"2026-10-17", label:"10/17 토", region:"귀국편", items:[
+   {id:"b_d10a",time:"07:30",type:"info",title:"호텔 체크아웃 → 스키폴 공항 (기차)"},
+   {id:"b_d10b",time:"10:25",type:"flight",title:"암스테르담 스키폴 출발"},
+   {id:"b_d10c",time:"19:15",type:"flight",title:"아부다비 터미널 A 도착"},
+   {id:"b_d10d",time:"21:15",type:"flight",title:"아부다비 터미널 A 출발"}
+ ]},
+ { date:"2026-10-18", label:"10/18 일", region:"인천 도착", items:[
+   {id:"b_d11a",time:"10:55",type:"flight",title:"인천공항 도착 🇰🇷"}
+ ]}
+]};
+
+/* ================= 저장소 ================= */
+var LS_EDIT="wtrip_edits_v2", LS_DONE="wtrip_done_v2", LS_CUSTOM="wtrip_custom_v2",
+    LS_TRIPS="wtrip_trips_v2", LS_CUR="wtrip_current_v2";
+function loadObj(k,def){ try{ var v=JSON.parse(localStorage.getItem(k)); return v==null?def:v; }catch(e){ return def; } }
+function save(k,v){ localStorage.setItem(k,JSON.stringify(v)); }
+
+var edits=loadObj(LS_EDIT,{}), done=loadObj(LS_DONE,{}), custom=loadObj(LS_CUSTOM,{});
+var userTrips=loadObj(LS_TRIPS,[]);
+var currentId=loadObj(LS_CUR,BUILTIN.id);
+
+function allTrips(){ return [BUILTIN].concat(userTrips); }
+function currentTrip(){
+  var t=allTrips().find(function(x){ return x.id===currentId; });
+  return t||BUILTIN;
+}
+
+/* ================= 유틸 ================= */
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]; }); }
+function pad2(n){ return String(n).padStart(2,"0"); }
+
+function effective(item){
+  var e=edits[item.id]||{};
+  return {
+    time: e.time!=null&&e.time!==""?e.time:item.time,
+    title: e.title!=null&&e.title!==""?e.title:item.title,
+    memo: e.memo||"",
+    dest: e.dest!=null?e.dest:null,
+    walk: e.walk!=null?e.walk:(item.mode==="w"),
+    hasEdit: e.title!=null&&e.title!==""
+  };
+}
+
+function parseCoord(s){
+  var m=/^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(s||"");
+  return m?{lat:m[1],lng:m[2]}:null;
+}
+
+function navTargets(item){
+  var e=effective(item);
+  if(e.dest!==null&&e.dest!==""){
+    var c=parseCoord(e.dest);
+    return c?{ll:c.lat+","+c.lng,q:null,pid:null}:{ll:null,q:e.dest,pid:null};
+  }
+  if(item.lat!=null) return {ll:item.lat+","+item.lng,q:null,pid:item.pid||null};
+  var qq=item.q||(e.hasEdit?e.title:null);
+  if(item.type==="spot"&&!item.q&&!e.hasEdit) qq=item.title; /* 파싱된 항목: 이름으로 검색 */
+  if(qq) return {ll:null,q:qq,pid:null};
+  return null;
+}
+
+function gmapUrl(t,walk){
+  var dest=t.ll?t.ll:t.q;
+  var u="https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(dest)
+      +"&travelmode="+(walk?"walking":"driving");
+  if(t.pid) u+="&destination_place_id="+t.pid;
+  return u;
+}
+function amapUrl(t,walk){
+  var dest=t.ll?t.ll:t.q;
+  return "https://maps.apple.com/?daddr="+encodeURIComponent(dest)+"&dirflg="+(walk?"w":"d");
+}
+
+/* ===== 플랫폼 감지 + 오프라인 친화 네비 실행 ===== */
+var IS_ANDROID=/Android/i.test(navigator.userAgent);
+var IS_IOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+function launchWithFallback(schemeUrl,fallbackUrl){
+  var t=setTimeout(function(){
+    if(!document.hidden) window.open(fallbackUrl,"_blank");
+  },1500);
+  var clear=function(){ clearTimeout(t); document.removeEventListener("visibilitychange",clear); };
+  document.addEventListener("visibilitychange",clear);
+  location.href=schemeUrl;
+}
+
+function openGoogleNav(t,walk){
+  var dest=t.ll?t.ll:t.q;
+  var fallback=gmapUrl(t,walk);
+  if(IS_ANDROID){
+    /* 즉시 턴바이턴 시작 · 오프라인 지도에서도 동작 (좌표 목적지 권장) */
+    launchWithFallback("google.navigation:q="+encodeURIComponent(dest)+"&mode="+(walk?"w":"d"),fallback);
+  }else if(IS_IOS){
+    launchWithFallback("comgooglemaps://?daddr="+encodeURIComponent(dest)
+      +"&directionsmode="+(walk?"walking":"driving"),fallback);
+  }else{
+    window.open(fallback,"_blank");
+  }
+}
+
+function openAppleNav(t,walk){
+  /* maps.apple.com 유니버설 링크는 iOS에서 로컬 처리되어 오프라인에서도 앱이 열림 */
+  window.open(amapUrl(t,walk),"_blank");
+}
+
+/* ================= 렌더 ================= */
+var todayStr=(function(){
+  var d=new Date();
+  return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
+})();
+
+function itemHTML(item,dateKey,removable){
+  var e=effective(item);
+  var t=navTargets(item);
+  var cls="item "+(item.type==="hotel"?"hotel ":"")+(item.type==="flight"?"flight ":"")+(done[item.id]?"done":"");
+  var titleHtml;
+  if(item.editable&&!e.hasEdit){
+    titleHtml='<span class="placeholder">'+esc(item.title)+' — 미정 (✏️로 입력)</span>';
+  }else{
+    titleHtml=esc(e.title);
+  }
+  if(item.book) titleHtml+='<span class="needbook">예약필수</span>';
+
+  var h='<div class="'+cls+'">'
+   +'<div class="row1">'
+   +'<span class="time">'+esc(e.time)+'</span>'
+   +'<span class="t-title">'+titleHtml+'</span>'
+   +'<button class="chk" data-chk="'+item.id+'">✓</button>'
+   +'</div>';
+  if(item.desc) h+='<div class="desc">'+esc(item.desc)+'</div>';
+  if(item.park) h+='<div class="parkinfo">🅿 '+esc(item.park)+'</div>';
+  if(e.memo) h+='<div class="memo">📝 '+esc(e.memo)+'</div>';
+
+  var btns="";
+  if(t&&item.type!=="flight"&&item.type!=="info"){
+    var icon=e.walk?"🚶":"🚗";
+    btns+='<button class="nav-btn nav-g'+(e.walk?" walk":"")+'" data-navg="'+item.id+'" data-date="'+esc(dateKey)+'">'+icon+' 구글 네비</button>';
+    if(!IS_ANDROID){
+      btns+='<button class="nav-btn nav-a'+(e.walk?" walk":"")+'" data-nava="'+item.id+'" data-date="'+esc(dateKey)+'"> 애플 네비</button>';
+    }
+  }
+  btns+='<button class="edit-btn" data-edit="'+item.id+'" data-date="'+esc(dateKey)+'">✏️</button>';
+  if(removable){
+    btns+='<button class="del-btn" data-del="'+item.id+'" data-date="'+esc(dateKey)+'">🗑</button>';
+  }
+  h+='<div class="btnrow">'+btns+'</div></div>';
+  return h;
+}
+
+function render(){
+  var trip=currentTrip();
+  var main=document.getElementById("main");
+  var tabs=document.getElementById("tabs");
+  var sel=document.getElementById("tripSel");
+
+  sel.innerHTML=allTrips().map(function(t){
+    return '<option value="'+esc(t.id)+'"'+(t.id===currentId?" selected":"")+'>'+esc(t.name)+'</option>';
+  }).join("");
+
+  if(!trip.days||trip.days.length===0){
+    tabs.innerHTML="";
+    main.innerHTML='<div class="empty">일정이 없습니다.<br>📄 PDF 버튼으로 일정표를 업로드하세요.</div>';
+    return;
+  }
+
+  var mh="",th="";
+  trip.days.forEach(function(day){
+    var isToday=day.date===todayStr;
+    th+='<button class="tab'+(isToday?" today":"")+'" data-jump="day_'+esc(day.date)+'">'+esc(day.label)+'</button>';
+    mh+='<section class="day" id="day_'+esc(day.date)+'">'
+      +'<div class="dayhead'+(isToday?" is-today":"")+'">'
+      +'<span class="d">'+esc(day.label)+'</span>'
+      +'<span class="region">'+esc(day.region||"")+'</span>'
+      +(isToday?'<span class="todaybadge">오늘</span>':"")
+      +'</div><div class="items">';
+    day.items.forEach(function(it){ mh+=itemHTML(it,day.date,!trip.builtin); });
+    (custom[trip.id+"|"+day.date]||[]).forEach(function(it){ mh+=itemHTML(it,day.date,true); });
+    mh+='</div>'
+      +'<button class="addrow" data-add="'+esc(day.date)+'">＋ 일정 추가 ('+esc(day.label)+')</button>'
+      +'</section>';
+  });
+  tabs.innerHTML=th;
+  main.innerHTML=mh;
+}
+
+/* ================= PDF 파싱 ================= */
+var PDFJS_URL="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+var PDFJS_WORKER="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+function status(msg){ document.getElementById("parseStatus").textContent=msg||""; }
+
+function loadPdfJs(){
+  return new Promise(function(res,rej){
+    if(window.pdfjsLib) return res();
+    var s=document.createElement("script");
+    s.src=PDFJS_URL;
+    s.onload=function(){
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER;
+      res();
+    };
+    s.onerror=function(){ rej(new Error("pdf.js 로드 실패 (인터넷 연결 필요)")); };
+    document.head.appendChild(s);
+  });
+}
+
+/* 페이지 텍스트를 y좌표 기준 줄 단위로 복원 */
+function pageToLines(textContent){
+  var rows={};
+  textContent.items.forEach(function(it){
+    if(!it.str) return;
+    var y=Math.round(it.transform[5]/3)*3; /* 3px 오차 허용 */
+    if(!rows[y]) rows[y]=[];
+    rows[y].push({x:it.transform[4],s:it.str});
+  });
+  return Object.keys(rows)
+    .sort(function(a,b){ return b-a; }) /* PDF는 y가 위로 갈수록 큼 */
+    .map(function(y){
+      return rows[y].sort(function(a,b){ return a.x-b.x; })
+        .map(function(r){ return r.s; }).join(" ");
+    });
+}
+
+function inferDate(mo,d){
+  var now=new Date();
+  var y=now.getFullYear();
+  var target=new Date(y,mo-1,d);
+  var cmp=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1);
+  if(target<cmp) y++;
+  return y+"-"+pad2(mo)+"-"+pad2(d);
+}
+
+function classify(title){
+  if(/체크아웃/.test(title)&&title.length<30) return {type:"info"};
+  if(/체크인|호텔|숙소/.test(title)) return {type:"hotel",editable:true};
+  if(/공항|비행|항공/.test(title)&&/출발|도착/.test(title)) return {type:"flight"};
+  if(/점심\s*(먹고|후)|이동|출발준비/.test(title)&&title.length<25) return {type:"info"};
+  return {type:"spot",mode:"d"};
+}
+
+function parseItinerary(lines,tripId){
+  var days=[], curDay=null, curItem=null, seq=0, nameLine=null, dayHasTimed=false;
+
+  function makeItem(time,title){
+    var t=title.trim().replace(/^[·\-–:،,]+\s*/,"");
+    var base={id:tripId+"_"+(seq++), time:time, title:t||"(제목 없음)", desc:""};
+    var c=classify(t);
+    for(var key in c) base[key]=c[key];
+    if(/예약\s*필수/.test(t)) base.book=true;
+    return base;
+  }
+
+  lines.forEach(function(raw){
+    var line=raw.replace(/\s+/g," ").trim();
+    if(!line) return;
+
+    /* 날짜 줄: "10/8 목 ..." */
+    var dm=/^(\d{1,2})\s*\/\s*(\d{1,2})\s*([월화수목금토일])?\s*(.*)$/.exec(line);
+    if(dm&&+dm[1]>=1&&+dm[1]<=12&&+dm[2]>=1&&+dm[2]<=31){
+      curDay={date:inferDate(+dm[1],+dm[2]),
+              label:dm[1]+"/"+dm[2]+(dm[3]?" "+dm[3]:""),
+              region:"", items:[]};
+      days.push(curDay); curItem=null; dayHasTimed=false;
+      line=(dm[4]||"").trim();
+      if(!line) return;
+    }
+    if(!curDay){ if(!nameLine) nameLine=line; return; }
+
+    /* 시간 토큰(HH:MM)으로 분할: 한 줄에 여러 일정 대응 */
+    var re=/(\d{1,2}):(\d{2})/g, tok=[], m;
+    while((m=re.exec(line))!==null){
+      if(+m[1]<=23&&+m[2]<=59) tok.push({i:m.index,len:m[0].length,h:+m[1],mm:m[2]});
+    }
+    if(tok.length===0){
+      /* 시간 없는 줄: 시간제 일정이 이미 있으면 설명으로, 없으면(자유일정 날) 새 항목으로 */
+      if(dayHasTimed&&curItem){
+        curItem.desc=(curItem.desc?curItem.desc+" ":"")+line;
+      }else{
+        curItem=makeItem("—",line);
+        curDay.items.push(curItem);
+      }
+      return;
+    }
+    dayHasTimed=true;
+    var pre=line.slice(0,tok[0].i).trim();
+    if(pre&&curItem) curItem.desc=(curItem.desc?curItem.desc+" ":"")+pre;
+    for(var k=0;k<tok.length;k++){
+      var start=tok[k].i+tok[k].len;
+      var end=(k+1<tok.length)?tok[k+1].i:line.length;
+      curItem=makeItem(pad2(tok[k].h)+":"+tok[k].mm, line.slice(start,end));
+      curDay.items.push(curItem);
+    }
+  });
+
+  /* 빈 desc 정리 */
+  days.forEach(function(d){ d.items.forEach(function(it){ if(!it.desc) delete it.desc; }); });
+  return {days:days, nameLine:nameLine};
+}
+
+function handlePdf(file){
+  status("PDF 읽는 중…");
+  loadPdfJs().then(function(){
+    return file.arrayBuffer();
+  }).then(function(buf){
+    return window.pdfjsLib.getDocument({data:buf}).promise;
+  }).then(function(pdf){
+    var pages=[];
+    for(var i=1;i<=pdf.numPages;i++) pages.push(pdf.getPage(i));
+    return Promise.all(pages).then(function(pgs){
+      return Promise.all(pgs.map(function(p){ return p.getTextContent(); }));
+    });
+  }).then(function(contents){
+    var lines=[];
+    contents.forEach(function(tc){ lines=lines.concat(pageToLines(tc)); });
+    var tripId="u_"+Date.now();
+    var parsed=parseItinerary(lines,tripId);
+    if(parsed.days.length===0){
+      status("⚠ 날짜(예: 10/8)를 찾지 못했습니다. PDF 형식을 확인해주세요.");
+      return;
+    }
+    var count=parsed.days.reduce(function(a,d){ return a+d.items.length; },0);
+    var name=(parsed.nameLine||file.name.replace(/\.pdf$/i,"")).slice(0,40);
+    userTrips.push({id:tripId,name:name,days:parsed.days});
+    currentId=tripId;
+    save(LS_TRIPS,userTrips); save(LS_CUR,currentId);
+    status("✅ \""+name+"\" 등록: "+parsed.days.length+"일 · "+count+"개 일정");
+    render();
+    window.scrollTo({top:0});
+  }).catch(function(err){
+    status("⚠ 오류: "+err.message);
+  });
+}
+
+document.getElementById("pdfBtn").addEventListener("click",function(){
+  document.getElementById("pdfInput").click();
+});
+document.getElementById("pdfInput").addEventListener("change",function(ev){
+  var f=ev.target.files[0];
+  if(f) handlePdf(f);
+  ev.target.value="";
+});
+
+/* ===== 여행 선택 / 삭제 ===== */
+document.getElementById("tripSel").addEventListener("change",function(ev){
+  currentId=ev.target.value;
+  save(LS_CUR,currentId);
+  status("");
+  render();
+  window.scrollTo({top:0});
+});
+document.getElementById("delTripBtn").addEventListener("click",function(){
+  var trip=currentTrip();
+  if(trip.builtin){ alert("내장 일정은 삭제할 수 없습니다."); return; }
+  if(!confirm("\""+trip.name+"\" 여행을 삭제할까요?")) return;
+  userTrips=userTrips.filter(function(t){ return t.id!==trip.id; });
+  /* 연관 데이터 정리 */
+  Object.keys(edits).forEach(function(k){ if(k.indexOf(trip.id+"_")===0) delete edits[k]; });
+  Object.keys(done).forEach(function(k){ if(k.indexOf(trip.id+"_")===0) delete done[k]; });
+  Object.keys(custom).forEach(function(k){ if(k.indexOf(trip.id+"|")===0) delete custom[k]; });
+  currentId=BUILTIN.id;
+  save(LS_TRIPS,userTrips); save(LS_CUR,currentId);
+  save(LS_EDIT,edits); save(LS_DONE,done); save(LS_CUSTOM,custom);
+  status("삭제되었습니다");
+  render();
+});
+
+/* ================= 편집 모달 ================= */
+var editingId=null, editingDate=null, creating=false;
+var overlay=document.getElementById("overlay");
+
+function findItem(id,dateKey){
+  var trip=currentTrip();
+  for(var i=0;i<trip.days.length;i++){
+    for(var j=0;j<trip.days[i].items.length;j++){
+      if(trip.days[i].items[j].id===id) return trip.days[i].items[j];
+    }
+  }
+  var arr=custom[trip.id+"|"+dateKey]||[];
+  for(var k=0;k<arr.length;k++){ if(arr[k].id===id) return arr[k]; }
+  return null;
+}
+
+function openEdit(id,dateKey){
+  creating=false; editingId=id; editingDate=dateKey;
+  var item=findItem(id,dateKey);
+  if(!item) return;
+  var e=effective(item);
+  document.getElementById("sheetTitle").textContent="일정 편집";
+  document.getElementById("f_time").value=e.time||"";
+  document.getElementById("f_title").value=e.hasEdit?e.title:(item.editable?"":item.title);
+  document.getElementById("f_dest").value=e.dest!==null?e.dest:(item.q||"");
+  document.getElementById("f_memo").value=e.memo||"";
+  document.getElementById("f_walk").checked=!!e.walk;
+  overlay.classList.add("show");
+}
+
+function openCreate(dateKey){
+  creating=true; editingId=null; editingDate=dateKey;
+  document.getElementById("sheetTitle").textContent="일정 추가";
+  document.getElementById("f_time").value="";
+  document.getElementById("f_title").value="";
+  document.getElementById("f_dest").value="";
+  document.getElementById("f_memo").value="";
+  document.getElementById("f_walk").checked=false;
+  overlay.classList.add("show");
+}
+
+document.getElementById("cancelBtn").addEventListener("click",function(){
+  overlay.classList.remove("show");
+});
+overlay.addEventListener("click",function(ev){
+  if(ev.target===overlay) overlay.classList.remove("show");
+});
+
+document.getElementById("saveBtn").addEventListener("click",function(){
+  var time=document.getElementById("f_time").value.trim();
+  var title=document.getElementById("f_title").value.trim();
+  var dest=document.getElementById("f_dest").value.trim();
+  var memo=document.getElementById("f_memo").value.trim();
+  var walk=document.getElementById("f_walk").checked;
+  var trip=currentTrip();
+  if(creating){
+    if(!title){ alert("이름을 입력해주세요"); return; }
+    var nid=(trip.builtin?"cb":trip.id)+"_c"+Date.now();
+    var newItem={id:nid,time:time||"—",type:"spot",mode:walk?"w":"d",title:title,q:dest||null};
+    if(trip.builtin){
+      var ck=trip.id+"|"+editingDate;
+      if(!custom[ck]) custom[ck]=[];
+      custom[ck].push(newItem);
+      save(LS_CUSTOM,custom);
+    }else{
+      var day=trip.days.find(function(d){ return d.date===editingDate; });
+      if(day){ day.items.push(newItem); save(LS_TRIPS,userTrips); }
+    }
+    if(memo){ edits[nid]={time:time||"—",title:title,dest:dest,memo:memo,walk:walk}; save(LS_EDIT,edits); }
+  }else{
+    edits[editingId]={time:time,title:title,dest:dest,memo:memo,walk:walk};
+    save(LS_EDIT,edits);
+  }
+  overlay.classList.remove("show");
+  render();
+});
+
+/* ================= 이벤트 위임 ================= */
+document.body.addEventListener("click",function(ev){
+  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-nava]");
+  if(!el) return;
+  if(el.dataset.navg||el.dataset.nava){
+    var nid=el.dataset.navg||el.dataset.nava;
+    var nitem=findItem(nid,el.dataset.date);
+    if(!nitem) return;
+    var nt=navTargets(nitem);
+    if(!nt) return;
+    var nw=effective(nitem).walk;
+    if(el.dataset.navg) openGoogleNav(nt,nw); else openAppleNav(nt,nw);
+    return;
+  }
+  if(el.dataset.chk){
+    var id=el.dataset.chk;
+    if(done[id]) delete done[id]; else done[id]=true;
+    save(LS_DONE,done); render(); return;
+  }
+  if(el.dataset.edit){ openEdit(el.dataset.edit,el.dataset.date); return; }
+  if(el.dataset.del){
+    if(!confirm("이 일정을 삭제할까요?")) return;
+    var trip=currentTrip(), did=el.dataset.del, dk=el.dataset.date;
+    var ck=trip.id+"|"+dk;
+    if(custom[ck]&&custom[ck].some(function(x){ return x.id===did; })){
+      custom[ck]=custom[ck].filter(function(x){ return x.id!==did; });
+      save(LS_CUSTOM,custom);
+    }else if(!trip.builtin){
+      trip.days.forEach(function(d){
+        d.items=d.items.filter(function(x){ return x.id!==did; });
+      });
+      save(LS_TRIPS,userTrips);
+    }
+    delete edits[did]; delete done[did];
+    save(LS_EDIT,edits); save(LS_DONE,done);
+    render(); return;
+  }
+  if(el.dataset.add){ editingDate=el.dataset.add; openCreate(el.dataset.add); return; }
+  if(el.dataset.jump){
+    var sec=document.getElementById(el.dataset.jump);
+    if(sec) sec.scrollIntoView({behavior:"smooth",block:"start"});
+    return;
+  }
+});
+
+/* ================= 초기화 ================= */
+render();
+(function(){
+  var sec=document.getElementById("day_"+todayStr);
+  if(sec) setTimeout(function(){ sec.scrollIntoView({block:"start"}); },100);
+})();
+
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("./sw.js").catch(function(){});
+}
+</script>
+</body>
+</html>
