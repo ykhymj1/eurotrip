@@ -1,5 +1,5 @@
-/* 서유럽 로드트립 PWA - Service Worker */
-var CACHE = "wtrip-v3-20260714";
+/* 여행 일정 네비 PWA - Service Worker */
+var CACHE = "wtrip-v4-20260715";
 var ASSETS = ["./", "./index.html"];
 
 self.addEventListener("install", function (e) {
