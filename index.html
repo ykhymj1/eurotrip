@@ -197,6 +197,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
   <div class="triprow">
     <select id="tripSel"></select>
     <button class="hbtn pdf" id="pdfBtn">📄 PDF</button>
+    <button class="hbtn" id="syncBtn">☁</button>
     <button class="hbtn" id="delTripBtn">🗑</button>
   </div>
   <div id="parseStatus"></div>
@@ -206,7 +207,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v5 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v7 · ☁ 동기화 지원 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -227,6 +228,22 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
     <div class="btnrow">
       <button class="save-btn" id="saveBtn">저장</button>
       <button class="cancel-btn" id="cancelBtn">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- 동기화 설정 모달 -->
+<div class="overlay" id="syncOverlay">
+  <div class="sheet">
+    <h3>☁ 기기 간 동기화</h3>
+    <div class="hint" style="margin-top:2px">같은 코드를 입력한 모든 기기(PC·Pixel·아이폰)에서 일정·체크·메모가 실시간 공유됩니다. 코드는 비밀번호처럼 남이 추측하기 어렵게 만드세요.</div>
+    <label>동기화 코드 (영문·숫자 6자 이상)</label>
+    <input type="text" id="f_synccode" placeholder="예: ykh-travel-2026" autocapitalize="off" autocomplete="off">
+    <div id="syncState" class="hint"></div>
+    <div class="btnrow">
+      <button class="save-btn" id="syncSaveBtn">연결</button>
+      <button class="cancel-btn" id="syncOffBtn">해제</button>
+      <button class="cancel-btn" id="syncCloseBtn">닫기</button>
     </div>
   </div>
 </div>
@@ -688,6 +705,7 @@ function handlePdf(file){
     currentId=tripId;
     save(LS_TRIPS,trips); save(LS_CUR,currentId);
     status((existing?"🔄 업데이트: ":"✅ 등록: ")+parsed.days.length+"일 · "+count+"개 일정 · 좌표 "+coordCount+"개 인식");
+    syncPush();
     render();
     window.scrollTo({top:0});
   }).catch(function(err){
@@ -749,6 +767,7 @@ document.getElementById("delTripBtn").addEventListener("click",function(){
   trips=trips.filter(function(t){ return t.id!==trip.id; });
   currentId=trips.length?trips[0].id:null;
   save(LS_TRIPS,trips); save(LS_CUR,currentId);
+  syncPush();
   status("삭제되었습니다");
   render();
 });
@@ -838,6 +857,117 @@ function showInfo(item){
     });
 }
 
+/* ================= Firebase 동기화 ================= */
+var FB_CONFIG={
+  apiKey:"AIzaSyDj1-j170cxsnWUh2EGdeO3AGVeobQYv04",
+  authDomain:"travel-nav-7e826.firebaseapp.com",
+  databaseURL:"https://travel-nav-7e826-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"travel-nav-7e826",
+  storageBucket:"travel-nav-7e826.firebasestorage.app",
+  messagingSenderId:"853651170539",
+  appId:"1:853651170539:web:93fc66d40900c3de318aae"
+};
+var LS_SYNC="wtrip_sync_code_v7", LS_DEV="wtrip_device_v7";
+var syncCode=loadObj(LS_SYNC,null);
+var DEVICE_ID=loadObj(LS_DEV,null);
+if(!DEVICE_ID){ DEVICE_ID="dev_"+Math.random().toString(36).slice(2,10); save(LS_DEV,DEVICE_ID); }
+var fbdb=null, fbRef=null, lastApplied=0, applyingRemote=false;
+
+function loadFirebase(){
+  return new Promise(function(res,rej){
+    if(window.firebase&&window.firebase.database) return res();
+    var s1=document.createElement("script");
+    s1.src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js";
+    s1.onload=function(){
+      var s2=document.createElement("script");
+      s2.src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js";
+      s2.onload=res;
+      s2.onerror=function(){ rej(new Error("Firebase 로드 실패")); };
+      document.head.appendChild(s2);
+    };
+    s1.onerror=function(){ rej(new Error("Firebase 로드 실패 (인터넷 필요)")); };
+    document.head.appendChild(s1);
+  });
+}
+
+function syncStatusText(){
+  return syncCode?("☁ 동기화 연결됨 · 코드: "+syncCode):"";
+}
+
+function startSync(){
+  if(!syncCode) return;
+  loadFirebase().then(function(){
+    if(!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+    fbdb=firebase.database();
+    if(fbRef) fbRef.off();
+    fbRef=fbdb.ref("rooms/"+syncCode);
+    fbRef.on("value",function(snap){
+      var v=snap.val();
+      if(!v){ syncPush(); return; } /* 방이 비어있으면 내 데이터 업로드 */
+      if(v.dev===DEVICE_ID) return;
+      if(!v.updatedAt||v.updatedAt<=lastApplied) return;
+      applyingRemote=true;
+      trips=v.trips||[];
+      edits=v.edits||{};
+      done=v.done||{};
+      save(LS_TRIPS,trips); save(LS_EDIT,edits); save(LS_DONE,done);
+      if(!trips.some(function(t){ return t.id===currentId; })){
+        currentId=trips.length?trips[0].id:null;
+        save(LS_CUR,currentId);
+      }
+      lastApplied=v.updatedAt;
+      applyingRemote=false;
+      render();
+      status(syncStatusText()+" · 업데이트 수신됨");
+    },function(err){
+      status("⚠ 동기화 오류: "+err.message+" (DB 규칙 확인 필요)");
+    });
+    status(syncStatusText());
+  }).catch(function(e){ status("⚠ "+e.message); });
+}
+
+function stopSync(){
+  if(fbRef){ fbRef.off(); fbRef=null; }
+  syncCode=null;
+  localStorage.removeItem(LS_SYNC);
+  status("동기화 해제됨 (이 기기의 일정은 유지)");
+}
+
+function syncPush(){
+  if(!fbRef||!syncCode||applyingRemote) return;
+  var state={trips:trips,edits:edits,done:done,updatedAt:Date.now(),dev:DEVICE_ID};
+  lastApplied=state.updatedAt;
+  try{
+    fbRef.set(JSON.parse(JSON.stringify(state)));
+  }catch(e){}
+}
+
+/* 동기화 설정 UI */
+var syncOverlay=document.getElementById("syncOverlay");
+document.getElementById("syncBtn").addEventListener("click",function(){
+  document.getElementById("f_synccode").value=syncCode||"";
+  document.getElementById("syncState").textContent=syncCode?("현재 연결됨: "+syncCode):"현재 미연결 — 이 기기에만 저장 중";
+  syncOverlay.classList.add("show");
+});
+document.getElementById("syncCloseBtn").addEventListener("click",function(){ syncOverlay.classList.remove("show"); });
+syncOverlay.addEventListener("click",function(ev){ if(ev.target===syncOverlay) syncOverlay.classList.remove("show"); });
+document.getElementById("syncSaveBtn").addEventListener("click",function(){
+  var code=document.getElementById("f_synccode").value.trim();
+  if(!/^[A-Za-z0-9_\-]{6,40}$/.test(code)){
+    alert("코드는 영문·숫자·하이픈으로 6자 이상이어야 합니다"); return;
+  }
+  syncCode=code; save(LS_SYNC,syncCode);
+  syncOverlay.classList.remove("show");
+  startSync();
+});
+document.getElementById("syncOffBtn").addEventListener("click",function(){
+  if(!syncCode){ syncOverlay.classList.remove("show"); return; }
+  if(confirm("동기화를 해제할까요? (기기의 일정은 그대로 유지됩니다)")){
+    stopSync();
+    syncOverlay.classList.remove("show");
+  }
+});
+
 /* ================= 편집 모달 ================= */
 var editingId=null, editingDate=null, creating=false;
 var overlay=document.getElementById("overlay");
@@ -912,6 +1042,7 @@ document.getElementById("saveBtn").addEventListener("click",function(){
     save(LS_EDIT,edits);
   }
   overlay.classList.remove("show");
+  syncPush();
   render();
 });
 
@@ -945,7 +1076,7 @@ document.body.addEventListener("click",function(ev){
   if(el.dataset.chk){
     var id=el.dataset.chk;
     if(done[id]) delete done[id]; else done[id]=true;
-    save(LS_DONE,done); render(); return;
+    save(LS_DONE,done); syncPush(); render(); return;
   }
   if(el.dataset.edit){ openEdit(el.dataset.edit); return; }
   if(el.dataset.del){
@@ -959,6 +1090,7 @@ document.body.addEventListener("click",function(ev){
     }
     delete edits[did]; delete done[did];
     save(LS_EDIT,edits); save(LS_DONE,done);
+    syncPush();
     render(); return;
   }
   if(el.dataset.add){ openCreate(el.dataset.add); return; }
@@ -975,6 +1107,8 @@ render();
   var sec=document.getElementById("day_"+todayStr);
   if(sec) setTimeout(function(){ sec.scrollIntoView({block:"start"}); },100);
 })();
+
+if(syncCode) startSync();
 
 if("serviceWorker" in navigator){
   navigator.serviceWorker.register("./sw.js").catch(function(){});
