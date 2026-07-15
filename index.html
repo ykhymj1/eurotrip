@@ -173,6 +173,19 @@ section.day{margin-bottom:26px}
 .close-btn{width:100%;background:var(--ink);color:#fff;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;margin-top:16px}
 
 footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
+
+/* ===== 드래그&드롭 ===== */
+#dropZone{
+  position:fixed; inset:0; z-index:200; display:none;
+  background:rgba(34,48,63,.72);
+  align-items:center; justify-content:center;
+}
+#dropZone.show{display:flex}
+#dropZone .box{
+  border:3px dashed #F5F3EE; border-radius:20px; color:#F5F3EE;
+  padding:46px 60px; font-size:19px; font-weight:800; text-align:center;
+  pointer-events:none;
+}
 </style>
 </head>
 <body>
@@ -191,7 +204,9 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v5 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트</footer>
+<footer>v5 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+
+<div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
 <!-- 편집 모달 -->
 <div class="overlay" id="overlay">
@@ -686,6 +701,35 @@ document.getElementById("pdfInput").addEventListener("change",function(ev){
   if(f) handlePdf(f);
   ev.target.value=""; /* 파일 참조 즉시 해제 — PDF 원본은 저장되지 않음 */
 });
+
+/* ===== 드래그&드롭 업로드 (PC) ===== */
+(function(){
+  var zone=document.getElementById("dropZone");
+  var depth=0;
+  document.addEventListener("dragenter",function(e){
+    e.preventDefault();
+    depth++;
+    zone.classList.add("show");
+  });
+  document.addEventListener("dragover",function(e){ e.preventDefault(); });
+  document.addEventListener("dragleave",function(e){
+    e.preventDefault();
+    depth--;
+    if(depth<=0){ depth=0; zone.classList.remove("show"); }
+  });
+  document.addEventListener("drop",function(e){
+    e.preventDefault();
+    depth=0;
+    zone.classList.remove("show");
+    var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(!f) return;
+    if(f.type!=="application/pdf"&&!/\.pdf$/i.test(f.name)){
+      status("⚠ PDF 파일만 업로드할 수 있습니다");
+      return;
+    }
+    handlePdf(f);
+  });
+})();
 
 /* ===== 여행 선택 / 삭제 ===== */
 document.getElementById("tripSel").addEventListener("change",function(ev){
