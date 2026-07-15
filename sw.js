@@ -1,5 +1,5 @@
 /* 여행 일정 네비 PWA - Service Worker */
-var CACHE = "wtrip-v4-20260715";
+var CACHE = "wtrip-v4.1-20260715";
 var ASSETS = ["./", "./index.html"];
 
 self.addEventListener("install", function (e) {

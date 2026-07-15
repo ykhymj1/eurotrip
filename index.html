@@ -486,15 +486,20 @@ function parseItinerary(lines,tripId){
     var line=raw.replace(/\s+/g," ").trim();
     if(!line) return;
 
-    /* 날짜 줄: "10/8 목 ..." */
+    /* 날짜 줄: "10/8 목 ..." — 요일이 있거나, 빈 줄이거나, 바로 시간이 이어져야 날짜로 인정
+       (메모 속 "8/7 575,830 자동결재" 같은 날짜 표기를 새 날로 오인하지 않도록) */
     var dm=/^(\d{1,2})\s*\/\s*(\d{1,2})\s*([월화수목금토일])?\s*(.*)$/.exec(line);
     if(dm&&+dm[1]>=1&&+dm[1]<=12&&+dm[2]>=1&&+dm[2]<=31){
-      curDay={date:inferDate(+dm[1],+dm[2]),
-              label:dm[1]+"/"+dm[2]+(dm[3]?" "+dm[3]:""),
-              items:[]};
-      days.push(curDay); curItem=null; dayHasTimed=false;
-      line=(dm[4]||"").trim();
-      if(!line) return;
+      var rest=(dm[4]||"").trim();
+      var looksDate=!!dm[3]||rest===""||/^\d{1,2}:\d{2}(?!\d)/.test(rest);
+      if(looksDate){
+        curDay={date:inferDate(+dm[1],+dm[2]),
+                label:dm[1]+"/"+dm[2]+(dm[3]?" "+dm[3]:""),
+                items:[]};
+        days.push(curDay); curItem=null; dayHasTimed=false;
+        line=rest;
+        if(!line) return;
+      }
     }
     if(!curDay){ if(!nameLine) nameLine=line; return; }
 
