@@ -211,7 +211,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v9 · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v9.1 · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -702,18 +702,19 @@ function handlePdf(file){
       }
       cleanupTripData(existing.id);
       trips=trips.filter(function(t){ return t.id!==existing.id; });
+      deletedTrips[existing.id]=Date.now(); save(LS_DEL,deletedTrips); /* 다른 기기에서 부활 방지 */
     }
 
     var count=parsed.days.reduce(function(a,d){ return a+d.items.length; },0);
     var coordCount=parsed.days.reduce(function(a,d){
       return a+d.items.filter(function(it){ return it.lat!=null; }).length; },0);
-    trips.push({id:tripId,name:name,days:parsed.days});
+    trips.push({id:tripId,name:name,days:parsed.days,updatedAt:Date.now()});
     currentId=tripId;
     save(LS_TRIPS,trips); save(LS_CUR,currentId);
     status((existing?"🔄 업데이트: ":"✅ 등록: ")+parsed.days.length+"일 · "+count+"개 일정 · 좌표 "+coordCount+"개 인식");
-    syncPush();
-    render();
+    render(); /* 화면 갱신 우선 */
     window.scrollTo({top:0});
+    try{ syncPush(); }catch(e){}
   }).catch(function(err){
     status("⚠ 오류: "+err.message);
   });
@@ -771,6 +772,7 @@ document.getElementById("delTripBtn").addEventListener("click",function(){
   if(!confirm("\""+trip.name+"\" 여행을 삭제할까요?")) return;
   cleanupTripData(trip.id);
   trips=trips.filter(function(t){ return t.id!==trip.id; });
+  deletedTrips[trip.id]=Date.now(); save(LS_DEL,deletedTrips);
   currentId=trips.length?trips[0].id:null;
   save(LS_TRIPS,trips); save(LS_CUR,currentId);
   syncPush();
@@ -1129,6 +1131,146 @@ function showInfo(item){
     });
 }
 
+/* ================= Firebase 동기화 (v9.1: 병합 + 툼스톤) ================= */
+var FB_CONFIG={
+  apiKey:"AIzaSyDj1-j170cxsnWUh2EGdeO3AGVeobQYv04",
+  authDomain:"travel-nav-7e826.firebaseapp.com",
+  databaseURL:"https://travel-nav-7e826-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"travel-nav-7e826",
+  storageBucket:"travel-nav-7e826.firebasestorage.app",
+  messagingSenderId:"853651170539",
+  appId:"1:853651170539:web:93fc66d40900c3de318aae"
+};
+var LS_SYNC="wtrip_sync_code_v7", LS_DEV="wtrip_device_v7", LS_DEL="wtrip_deleted_v9";
+var syncCode=loadObj(LS_SYNC,null);
+var DEVICE_ID=loadObj(LS_DEV,null);
+if(!DEVICE_ID){ DEVICE_ID="dev_"+Math.random().toString(36).slice(2,10); save(LS_DEV,DEVICE_ID); }
+var deletedTrips=loadObj(LS_DEL,{}); /* 삭제 툼스톤: {tripId: 삭제시각} */
+var fbdb=null, fbRef=null, lastApplied=0, applyingRemote=false;
+
+function loadFirebase(){
+  return new Promise(function(res,rej){
+    if(window.firebase&&window.firebase.database) return res();
+    var s1=document.createElement("script");
+    s1.src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js";
+    s1.onload=function(){
+      var s2=document.createElement("script");
+      s2.src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js";
+      s2.onload=res;
+      s2.onerror=function(){ rej(new Error("Firebase 로드 실패")); };
+      document.head.appendChild(s2);
+    };
+    s1.onerror=function(){ rej(new Error("Firebase 로드 실패 (인터넷 필요)")); };
+    document.head.appendChild(s1);
+  });
+}
+
+function syncStatusText(){
+  return syncCode?("☁ 동기화 연결됨 · 코드: "+syncCode):"";
+}
+
+/* 여행 목록 병합: 합집합, 같은 id는 updatedAt이 최신인 쪽, 툼스톤 제외 */
+function mergeTrips(localArr,remoteArr,delMap){
+  var map={},order=[],tookLocal=false;
+  function addAll(arr,isLocal){
+    (arr||[]).forEach(function(t){
+      if(!t||!t.id||delMap[t.id]) return;
+      var ex=map[t.id];
+      if(!ex){ map[t.id]=t; order.push(t.id); if(isLocal) tookLocal=true; }
+      else if((t.updatedAt||0)>(ex.updatedAt||0)){ map[t.id]=t; if(isLocal) tookLocal=true; }
+    });
+  }
+  addAll(remoteArr,false);
+  addAll(localArr,true);
+  return {list:order.map(function(id){ return map[id]; }),tookLocal:tookLocal};
+}
+
+function startSync(){
+  if(!syncCode) return;
+  loadFirebase().then(function(){
+    if(!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+    fbdb=firebase.database();
+    if(fbRef) fbRef.off();
+    fbRef=fbdb.ref("rooms/"+syncCode);
+    fbRef.on("value",function(snap){
+      var v=snap.val();
+      if(!v){ syncPush(); return; } /* 방이 비어있으면 내 데이터 업로드 */
+      if(v.dev===DEVICE_ID) return;
+      if(!v.updatedAt||v.updatedAt<=lastApplied) return;
+      applyingRemote=true;
+      /* 툼스톤 병합 */
+      var rDel=v.deleted||{};
+      Object.keys(rDel).forEach(function(k){
+        if(!deletedTrips[k]||rDel[k]>deletedTrips[k]) deletedTrips[k]=rDel[k];
+      });
+      /* 여행 병합: 로컬에만 있거나 더 최신인 여행을 살림 */
+      var mg=mergeTrips(trips,v.trips||[],deletedTrips);
+      trips=mg.list;
+      edits=v.edits||{};
+      done=v.done||{};
+      save(LS_TRIPS,trips); save(LS_EDIT,edits); save(LS_DONE,done); save(LS_DEL,deletedTrips);
+      if(!trips.some(function(t){ return t.id===currentId; })){
+        currentId=trips.length?trips[0].id:null;
+        save(LS_CUR,currentId);
+      }
+      lastApplied=v.updatedAt;
+      applyingRemote=false;
+      render();
+      if(mg.tookLocal){
+        setTimeout(syncPush,400); /* 병합 결과를 서버에 재전송해 모든 기기 수렴 */
+        status(syncStatusText()+" · 병합 후 재전송");
+      }else{
+        status(syncStatusText()+" · 업데이트 수신됨");
+      }
+    },function(err){
+      status("⚠ 동기화 오류: "+err.message+" (DB 규칙 확인 필요)");
+    });
+    status(syncStatusText());
+  }).catch(function(e){ status("⚠ "+e.message); });
+}
+
+function stopSync(){
+  if(fbRef){ fbRef.off(); fbRef=null; }
+  syncCode=null;
+  localStorage.removeItem(LS_SYNC);
+  status("동기화 해제됨 (이 기기의 일정은 유지)");
+}
+
+function syncPush(){
+  if(!fbRef||!syncCode||applyingRemote) return;
+  var state={trips:trips,deleted:deletedTrips,edits:edits,done:done,updatedAt:Date.now(),dev:DEVICE_ID};
+  lastApplied=state.updatedAt;
+  try{
+    fbRef.set(JSON.parse(JSON.stringify(state)));
+  }catch(e){}
+}
+
+/* 동기화 설정 UI */
+var syncOverlayEl=document.getElementById("syncOverlay");
+document.getElementById("syncBtn").addEventListener("click",function(){
+  document.getElementById("f_synccode").value=syncCode||"";
+  document.getElementById("syncState").textContent=syncCode?("현재 연결됨: "+syncCode):"현재 미연결 — 이 기기에만 저장 중";
+  syncOverlayEl.classList.add("show");
+});
+document.getElementById("syncCloseBtn").addEventListener("click",function(){ syncOverlayEl.classList.remove("show"); });
+syncOverlayEl.addEventListener("click",function(ev){ if(ev.target===syncOverlayEl) syncOverlayEl.classList.remove("show"); });
+document.getElementById("syncSaveBtn").addEventListener("click",function(){
+  var code=document.getElementById("f_synccode").value.trim();
+  if(!/^[A-Za-z0-9_\-]{6,40}$/.test(code)){
+    alert("코드는 영문·숫자·하이픈으로 6자 이상이어야 합니다"); return;
+  }
+  syncCode=code; save(LS_SYNC,syncCode);
+  syncOverlayEl.classList.remove("show");
+  startSync();
+});
+document.getElementById("syncOffBtn").addEventListener("click",function(){
+  if(!syncCode){ syncOverlayEl.classList.remove("show"); return; }
+  if(confirm("동기화를 해제할까요? (기기의 일정은 그대로 유지됩니다)")){
+    stopSync();
+    syncOverlayEl.classList.remove("show");
+  }
+});
+
 /* ================= 편집 모달 ================= */
 var editingId=null, editingDate=null, creating=false;
 var overlay=document.getElementById("overlay");
@@ -1195,6 +1337,7 @@ document.getElementById("saveBtn").addEventListener("click",function(){
       else if(dest){ newItem.q=dest; }
       else{ newItem.q=title; }
       day.items.push(newItem);
+      trip.updatedAt=Date.now();
       save(LS_TRIPS,trips);
       if(memo){ edits[nid]={time:time||"—",title:title,dest:"",memo:memo,walk:walk}; save(LS_EDIT,edits); }
     }
@@ -1247,6 +1390,7 @@ document.body.addEventListener("click",function(ev){
       trip.days.forEach(function(d){
         d.items=d.items.filter(function(x){ return x.id!==did; });
       });
+      trip.updatedAt=Date.now();
       save(LS_TRIPS,trips);
     }
     delete edits[did]; delete done[did];
