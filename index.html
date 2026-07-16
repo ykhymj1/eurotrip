@@ -142,6 +142,22 @@ section.day{margin-bottom:26px}
   border-radius:12px; padding:11px; font-size:14px; font-weight:600; cursor:pointer; margin-top:2px;
 }
 
+/* ===== v10 동선 UI ===== */
+.dayhead{cursor:pointer;user-select:none;flex-wrap:wrap;align-items:center}
+.dayhead .chips{font-size:11.5px;color:var(--sub);font-weight:700;background:#ECE8DF;border-radius:10px;padding:3px 9px;margin-left:auto}
+.dayhead .foldarrow{color:var(--sub);font-size:13px;margin-left:6px;transition:transform .15s;display:inline-block}
+.day.folded .foldarrow{transform:rotate(-90deg)}
+.day.folded .items,.day.folded .addrow{display:none}
+.item::before{background:var(--ok)}
+.item.kind-park::before{background:#2E6DA4}
+.item.kind-meal::before{background:var(--accent)}
+.item.kind-info::before{background:#B9B2A6}
+.item.walknode{margin-left:18px}
+.leg{position:relative;padding:0 0 10px 26px;font-size:12.5px;color:var(--sub);font-weight:600}
+.leg.walk{color:#3E7C4F;margin-left:18px}
+.leg.drive{color:#2E6DA4;font-weight:800;padding-top:2px}
+.leg.back{color:#2E6DA4;margin-left:18px}
+
 /* ===== 모달 공통 ===== */
 .overlay{
   position:fixed; inset:0; background:rgba(34,48,63,.5); z-index:100;
@@ -211,7 +227,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v9.1 · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v10 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -378,21 +394,120 @@ function openParking(t){
   }
 }
 
+/* ================= v10 동선 빌더 ================= */
+var LS_FOLD="wtrip_fold_v10";
+var foldMap=loadObj(LS_FOLD,{});
+
+function haversineKm(a,b,c,d){
+  var R=6371,rad=Math.PI/180;
+  var x=(c-a)*rad,y=(d-b)*rad;
+  var h=Math.sin(x/2)*Math.sin(x/2)+Math.cos(a*rad)*Math.cos(c*rad)*Math.sin(y/2)*Math.sin(y/2);
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+/* 항목 종류·아이콘 판별 */
+function kindOf(item,title){
+  var t=title||item.title||"";
+  if(item.type==="hotel") return {k:"hotel",ic:"🏨"};
+  if(item.type==="flight") return {k:"flight",ic:"✈️"};
+  if(item.type==="info") return {k:"info",ic:""};
+  if(/주차|parkplatz|parking|parkeer|park\s*and\s*ride/i.test(t)) return {k:"park",ic:"🅿"};
+  if(/카페|coffee|café/i.test(t)) return {k:"meal",ic:"☕"};
+  if(/점심|저녁|아침|식사|레스토랑|맛집|restaurant|lunch|dinner|브런치/i.test(t)) return {k:"meal",ic:"🍴"};
+  var ic="📍";
+  if(/성당|교회|church|cathedral|kerk|dom\b/i.test(t)) ic="⛪";
+  else if(/폭포|falls|cascade/i.test(t)) ic="💧";
+  else if(/호수|lake|meer\b/i.test(t)) ic="🏞";
+  else if(/다리|bridge|brücke|brug/i.test(t)) ic="🌉";
+  else if(/미술관|박물관|museum|galerie|gallery/i.test(t)) ic="🎨";
+  else if(/시장|market|markt/i.test(t)) ic="🛍";
+  else if(/곤돌라|케이블|gondola|seilbahn|lift/i.test(t)) ic="🚡";
+  else if(/동굴|cave|grotte/i.test(t)) ic="🕳";
+  else if(/종탑|타워|tower|belfort|belfry/i.test(t)) ic="🗼";
+  else if(/전망|viewpoint|lookout|파노라마|panorama/i.test(t)) ic="🔭";
+  else if(/궁|palace|paleis/i.test(t)) ic="🏛";
+  else if(/성\b|성[^당]|castle|burg|citadel|kasteel|steen/i.test(t)) ic="🏰";
+  else if(/풍차|mill|molen/i.test(t)) ic="🌬";
+  else if(/공항|airport/i.test(t)) ic="✈️";
+  return {k:"spot",ic:ic};
+}
+
+/* 하루 일정 → 동선(도보/차량 구간 + 주차 복귀 + 요약) */
+var WALK_MAX_KM=1.5, WALK_FACTOR=1.25, WALK_M_PER_MIN=75, DRIVE_FACTOR=1.3;
+function buildDayRoute(day){
+  var rows=[],prev=null,parking=null;
+  var walkKm=0,driveKm=0,driveLegs=0,spots=0;
+  day.items.forEach(function(item){
+    var e=effective(item);
+    var kind=kindOf(item,e.title);
+    if(kind.k==="spot"||kind.k==="park"||kind.k==="meal") spots++;
+    var computedWalk=null;
+    if(item.lat!=null){
+      if(prev){
+        var d=haversineKm(prev.lat,prev.lng,item.lat,item.lng);
+        if(d<=WALK_MAX_KM){
+          var m=Math.round(d*1000*WALK_FACTOR);
+          var min=Math.max(1,Math.round(m/WALK_M_PER_MIN));
+          rows.push({leg:"walk",m:m,min:min});
+          walkKm+=d*WALK_FACTOR;
+          computedWalk=true;
+        }else{
+          /* 차량 구간 시작 — 직전 도보 클러스터가 주차장 기반이면 복귀 안내 먼저 */
+          if(parking&&prev!==parking&&parking.lat!=null){
+            var back=haversineKm(prev.lat,prev.lng,parking.lat,parking.lng);
+            if(back<=WALK_MAX_KM){
+              rows.push({leg:"back",min:Math.max(1,Math.round(back*1000*WALK_FACTOR/WALK_M_PER_MIN))});
+              walkKm+=back*WALK_FACTOR;
+            }
+          }
+          parking=null;
+          var km=Math.round(d*DRIVE_FACTOR);
+          rows.push({leg:"drive",km:km});
+          driveKm+=km; driveLegs++;
+          computedWalk=false;
+        }
+      }
+      if(kind.k==="park") parking=item;
+      prev=item;
+    }
+    rows.push({item:item,kind:kind,computedWalk:computedWalk});
+  });
+  /* 하루 마지막: 주차장 복귀 */
+  if(parking&&prev&&prev!==parking&&parking.lat!=null){
+    var back2=haversineKm(prev.lat,prev.lng,parking.lat,parking.lng);
+    if(back2<=WALK_MAX_KM){
+      rows.push({leg:"back",min:Math.max(1,Math.round(back2*1000*WALK_FACTOR/WALK_M_PER_MIN))});
+      walkKm+=back2*WALK_FACTOR;
+    }
+  }
+  return {rows:rows,walkKm:walkKm,driveKm:driveKm,driveLegs:driveLegs,spots:spots};
+}
+
 /* ================= 렌더 ================= */
 var todayStr=(function(){
   var d=new Date();
   return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
 })();
 
-function itemHTML(item,dateKey){
+function itemHTML(item,dateKey,kind,computedWalk){
   var e=effective(item);
   var t=navTargets(item);
-  var cls="item "+(item.type==="hotel"?"hotel ":"")+(item.type==="flight"?"flight ":"")+(done[item.id]?"done":"");
+  if(!kind) kind=kindOf(item,e.title);
+  var walkFlag=(edits[item.id]&&edits[item.id].walk!=null)
+    ? edits[item.id].walk
+    : (computedWalk!=null?computedWalk:(item.mode==="w"));
+  var cls="item kind-"+kind.k
+    +(computedWalk===true?" walknode":"")
+    +(item.type==="hotel"?" hotel":"")
+    +(item.type==="flight"?" flight":"")
+    +(done[item.id]?" done":"");
 
   var h='<div class="'+cls+'">'
    +'<div class="row1">'
    +'<span class="time">'+esc(e.time)+'</span>'
-   +'<span class="t-title">'+esc(e.title)+'</span>'
+   +'<span class="t-title">'+(kind.ic?kind.ic+" ":"")+esc(e.title)
+   +(item.book?'<span class="needbook">예약필수</span>':"")
+   +'</span>'
    +'<button class="chk" data-chk="'+item.id+'">✓</button>'
    +'</div>';
   if(item.desc) h+='<div class="desc">'+esc(item.desc)+'</div>';
@@ -401,10 +516,10 @@ function itemHTML(item,dateKey){
 
   var btns="";
   if(t&&item.type!=="flight"&&item.type!=="info"){
-    var icon=e.walk?"🚶":"🚗";
-    btns+='<button class="nav-btn nav-g'+(e.walk?" walk":"")+'" data-navg="'+item.id+'">'+icon+' 구글 네비</button>';
+    var icon=walkFlag?"🚶":"🚗";
+    btns+='<button class="nav-btn nav-g'+(walkFlag?" walk":"")+'" data-navg="'+item.id+'" data-walk="'+(walkFlag?"1":"0")+'">'+icon+' 구글 네비</button>';
     if(!IS_ANDROID){
-      btns+='<button class="nav-btn nav-a'+(e.walk?" walk":"")+'" data-nava="'+item.id+'"> 애플 네비</button>';
+      btns+='<button class="nav-btn nav-a'+(walkFlag?" walk":"")+'" data-nava="'+item.id+'" data-walk="'+(walkFlag?"1":"0")+'"> 애플 네비</button>';
     }
   }
   if(item.type==="spot"){
@@ -454,13 +569,26 @@ function render(){
   var mh="",th="";
   trip.days.forEach(function(day){
     var isToday=day.date===todayStr;
+    var rt=buildDayRoute(day);
+    var fkey=trip.id+"|"+day.date;
+    var isFold=!!foldMap[fkey];
+    var chips=(rt.driveLegs?("🚗 "+rt.driveLegs+"구간 · "):"")
+      +(rt.walkKm>=0.05?("🚶 "+rt.walkKm.toFixed(1)+"km · "):"")
+      +"📍 "+rt.spots+"곳";
     th+='<button class="tab'+(isToday?" today":"")+'" data-jump="day_'+esc(day.date)+'">'+esc(day.label)+'</button>';
-    mh+='<section class="day" id="day_'+esc(day.date)+'">'
-      +'<div class="dayhead'+(isToday?" is-today":"")+'">'
+    mh+='<section class="day'+(isFold?" folded":"")+'" id="day_'+esc(day.date)+'">'
+      +'<div class="dayhead'+(isToday?" is-today":"")+'" data-fold="'+esc(fkey)+'">'
       +'<span class="d">'+esc(day.label)+'</span>'
       +(isToday?'<span class="todaybadge">오늘</span>':"")
+      +'<span class="chips">'+chips+'</span>'
+      +'<span class="foldarrow">▾</span>'
       +'</div><div class="items">';
-    day.items.forEach(function(it){ mh+=itemHTML(it,day.date); });
+    rt.rows.forEach(function(r){
+      if(r.leg==="walk") mh+='<div class="leg walk">🚶 '+r.m+'m · 약 '+r.min+'분</div>';
+      else if(r.leg==="drive") mh+='<div class="leg drive">🚗 차량 이동 · 약 '+r.km+'km</div>';
+      else if(r.leg==="back") mh+='<div class="leg back">↩ 🅿 주차장 복귀 · 도보 약 '+r.min+'분</div>';
+      else mh+=itemHTML(r.item,day.date,r.kind,r.computedWalk);
+    });
     mh+='</div>'
       +'<button class="addrow" data-add="'+esc(day.date)+'">＋ 일정 추가 ('+esc(day.label)+')</button>'
       +'</section>';
@@ -1352,7 +1480,7 @@ document.getElementById("saveBtn").addEventListener("click",function(){
 
 /* ================= 이벤트 위임 ================= */
 document.body.addEventListener("click",function(ev){
-  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-nava],[data-info],[data-park]");
+  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-nava],[data-info],[data-park],[data-fold]");
   if(!el) return;
   if(el.dataset.park){
     var pitem=findItem(el.dataset.park);
@@ -1368,7 +1496,7 @@ document.body.addEventListener("click",function(ev){
     if(!nitem) return;
     var nt=navTargets(nitem);
     if(!nt) return;
-    var nw=effective(nitem).walk;
+    var nw=el.dataset.walk==="1";
     if(el.dataset.navg) openGoogleNav(nt,nw); else openAppleNav(nt,nw);
     return;
   }
@@ -1398,8 +1526,19 @@ document.body.addEventListener("click",function(ev){
     syncPush();
     render(); return;
   }
+  if(el.dataset.fold){
+    var fk=el.dataset.fold;
+    if(foldMap[fk]) delete foldMap[fk]; else foldMap[fk]=1;
+    save(LS_FOLD,foldMap);
+    render(); return;
+  }
   if(el.dataset.add){ openCreate(el.dataset.add); return; }
   if(el.dataset.jump){
+    var tnow=currentTrip();
+    if(tnow){
+      var fk2=tnow.id+"|"+el.dataset.jump.replace("day_","");
+      if(foldMap[fk2]){ delete foldMap[fk2]; save(LS_FOLD,foldMap); render(); }
+    }
     var sec=document.getElementById(el.dataset.jump);
     if(sec) sec.scrollIntoView({behavior:"smooth",block:"start"});
     return;
