@@ -173,6 +173,10 @@ section.day{margin-bottom:26px}
 #infoSrc{font-size:12px;color:var(--sub);margin-top:12px}
 #infoSrc a{color:var(--flight)}
 .close-btn{width:100%;background:var(--ink);color:#fff;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;margin-top:16px}
+.ai-btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14.5px;font-weight:700;cursor:pointer;margin-top:14px;display:none}
+#aiBox{font-size:14.5px;line-height:1.75;color:var(--ink);margin-top:12px;white-space:pre-wrap;background:var(--accent-soft);border-radius:12px;padding:0;max-height:0;overflow:hidden;transition:none}
+#aiBox.show{padding:12px 14px;max-height:none;overflow:visible}
+#aiBox .ai-src{font-size:11.5px;color:var(--sub);margin-top:8px}
 
 footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
@@ -207,7 +211,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v8 · ☁ 동기화 지원 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v9 · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -255,6 +259,8 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
     <img id="infoImg" alt="">
     <div id="infoBody"></div>
     <div id="infoSrc"></div>
+    <button class="ai-btn" id="aiSumBtn">🤖 AI 여행 요약 보기</button>
+    <div id="aiBox"></div>
     <button class="close-btn" id="infoClose">닫기</button>
   </div>
 </div>
@@ -1028,6 +1034,57 @@ function lookupInfo(item,query,enQuery){
     });
 }
 
+var AI_WORKER="https://travel-ai.kyunghoyou.workers.dev"; /* Worker 배포 후 주소가 다르면 여기만 수정 */
+var LS_AI="wtrip_ai_v9";
+var aiCache=loadObj(LS_AI,{});
+var aiCurrent=null; /* {item, wikiExtract, key} */
+
+function resetAiUi(){
+  var btn=document.getElementById("aiSumBtn");
+  var box=document.getElementById("aiBox");
+  box.classList.remove("show"); box.innerHTML="";
+  btn.style.display=AI_WORKER?"block":"none";
+  btn.disabled=false; btn.textContent="🤖 AI 여행 요약 보기";
+}
+function renderAi(text,model){
+  var box=document.getElementById("aiBox");
+  box.innerHTML="";
+  var t=document.createElement("div"); t.textContent=text;
+  var s=document.createElement("div"); s.className="ai-src";
+  s.textContent="AI 요약 ("+(model||"")+") · 요금·운영시간은 공식 사이트에서 재확인하세요";
+  box.appendChild(t); box.appendChild(s);
+  box.classList.add("show");
+  document.getElementById("aiSumBtn").style.display="none";
+}
+document.getElementById("aiSumBtn").addEventListener("click",function(){
+  if(!aiCurrent||!AI_WORKER) return;
+  var cached=aiCache[aiCurrent.key];
+  if(cached){ renderAi(cached.text,cached.model); return; }
+  var btn=this;
+  btn.disabled=true; btn.textContent="🤖 AI가 요약하는 중…";
+  var it=aiCurrent.item;
+  fetch(AI_WORKER,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      name:effective(it).title,
+      lat:it.lat!=null?it.lat:null,
+      lng:it.lat!=null?it.lng:null,
+      wiki:aiCurrent.wikiExtract||""
+    })
+  }).then(function(r){ return r.json(); }).then(function(j){
+    if(!j.summary) throw new Error(j.error||"요약 실패");
+    aiCache[aiCurrent.key]={text:j.summary,model:j.model};
+    var ks=Object.keys(aiCache);
+    if(ks.length>60) delete aiCache[ks[0]];
+    save(LS_AI,aiCache);
+    renderAi(j.summary,j.model);
+  }).catch(function(e){
+    btn.disabled=false;
+    btn.textContent="🤖 실패 — 다시 시도 ("+e.message+")";
+  });
+});
+
 function showInfo(item){
   var e=effective(item);
   var query=cleanWikiQuery(e.title);
@@ -1040,7 +1097,12 @@ function showInfo(item){
   sEl.innerHTML="";
   infoOverlay.classList.add("show");
 
+  var aiKey="ai|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
+  aiCurrent={item:item,wikiExtract:"",key:aiKey};
+  resetAiUi();
+
   function renderInfo(d){
+    if(aiCurrent){ aiCurrent.wikiExtract=(d.extract||"").slice(0,1500); }
     bEl.textContent=d.extract;
     if(d.img){ iEl.src=d.img; iEl.style.display="block"; }
     sEl.innerHTML="출처: "+esc(d.srcNote||"위키백과")
