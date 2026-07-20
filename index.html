@@ -121,6 +121,9 @@ section.day{margin-bottom:26px}
   text-decoration:none; color:#fff;
 }
 .nav-g{background:#1A73E8}
+.nav-t{background:#5B4B8A}
+.leg.transit{color:#5B4B8A;font-weight:800;padding-top:2px}
+.leg.fartravel{color:var(--flight);font-weight:800;padding-top:2px}
 .nav-a{background:#111}
 .nav-btn.walk{filter:saturate(.6)}
 .info-btn{
@@ -227,7 +230,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v10 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v10.1 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -338,10 +341,6 @@ function gmapUrl(t,walk){
   return "https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(dest)
       +"&travelmode="+(walk?"walking":"driving");
 }
-function amapUrl(t,walk){
-  var dest=t.ll?t.ll:t.q;
-  return "https://maps.apple.com/?daddr="+encodeURIComponent(dest)+"&dirflg="+(walk?"w":"d");
-}
 
 /* ===== 플랫폼 감지 + 오프라인 친화 네비 실행 ===== */
 var IS_ANDROID=/Android/i.test(navigator.userAgent);
@@ -356,19 +355,33 @@ function launchWithFallback(schemeUrl,fallbackUrl){
   location.href=schemeUrl;
 }
 
-function openGoogleNav(t,walk){
+/* mode: 'd'(차량) | 'w'(도보) | 't'(대중교통) */
+function gmapModeUrl(t,mode){
   var dest=t.ll?t.ll:t.q;
-  var fallback=gmapUrl(t,walk);
+  var tm=mode==="w"?"walking":(mode==="t"?"transit":"driving");
+  return "https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(dest)+"&travelmode="+tm;
+}
+function openGoogleNav(t,mode){
+  var dest=t.ll?t.ll:t.q;
+  var fallback=gmapModeUrl(t,mode);
+  if(mode==="t"){
+    /* 대중교통은 턴바이턴 스킴이 없어 경로화면으로 연결 */
+    if(IS_IOS){
+      launchWithFallback("comgooglemaps://?daddr="+encodeURIComponent(dest)+"&directionsmode=transit",fallback);
+    }else{
+      window.open(fallback,"_blank");
+    }
+    return;
+  }
   if(IS_ANDROID){
-    launchWithFallback("google.navigation:q="+encodeURIComponent(dest)+"&mode="+(walk?"w":"d"),fallback);
+    launchWithFallback("google.navigation:q="+encodeURIComponent(dest)+"&mode="+(mode==="w"?"w":"d"),fallback);
   }else if(IS_IOS){
     launchWithFallback("comgooglemaps://?daddr="+encodeURIComponent(dest)
-      +"&directionsmode="+(walk?"walking":"driving"),fallback);
+      +"&directionsmode="+(mode==="w"?"walking":"driving"),fallback);
   }else{
     window.open(fallback,"_blank");
   }
 }
-function openAppleNav(t,walk){ window.open(amapUrl(t,walk),"_blank"); }
 
 /* 목적지 주변 주차장 검색 (구글지도) */
 function openParking(t){
@@ -432,11 +445,18 @@ function kindOf(item,title){
   return {k:"spot",ic:ic};
 }
 
-/* 하루 일정 → 동선(도보/차량 구간 + 주차 복귀 + 요약) */
+/* 렌트카 픽업(+1)/반납(-1) 감지 */
+function carEvent(title){
+  if(!/렌트카|rent\s*a?\s*car|허츠|hertz/i.test(title||"")) return 0;
+  return /반납|return/i.test(title)?-1:1;
+}
+
+/* 하루 일정 → 동선(도보/차량/대중교통 구간 + 주차 복귀 + 요약) */
 var WALK_MAX_KM=1.5, WALK_FACTOR=1.25, WALK_M_PER_MIN=75, DRIVE_FACTOR=1.3;
-function buildDayRoute(day){
+function buildDayRoute(day,car){
+  car=car||{has:true};
   var rows=[],prev=null,parking=null;
-  var walkKm=0,driveKm=0,driveLegs=0,spots=0;
+  var walkKm=0,driveKm=0,driveLegs=0,transitLegs=0,spots=0;
   day.items.forEach(function(item){
     var e=effective(item);
     var kind=kindOf(item,e.title);
@@ -450,7 +470,7 @@ function buildDayRoute(day){
           var min=Math.max(1,Math.round(m/WALK_M_PER_MIN));
           rows.push({leg:"walk",m:m,min:min});
           walkKm+=d*WALK_FACTOR;
-          computedWalk=true;
+          computedWalk="w";
         }else{
           /* 차량 구간 시작 — 직전 도보 클러스터가 주차장 기반이면 복귀 안내 먼저 */
           if(parking&&prev!==parking&&parking.lat!=null){
@@ -461,16 +481,36 @@ function buildDayRoute(day){
             }
           }
           parking=null;
+          if(d>400){
+            /* 400km 초과 = 항공 등 장거리 구간 (도로 이동 아님) */
+            rows.push({leg:"far"});
+            computedWalk=car.has?"d":"t";
+            prev=item;
+            if(kind.k==="park") parking=item;
+            rows.push({item:item,kind:kind,computedWalk:computedWalk});
+            var cevF=carEvent(e.title);
+            if(cevF===1) car.has=true; else if(cevF===-1) car.has=false;
+            return;
+          }
           var km=Math.round(d*DRIVE_FACTOR);
-          rows.push({leg:"drive",km:km});
-          driveKm+=km; driveLegs++;
-          computedWalk=false;
+          if(car.has){
+            rows.push({leg:"drive",km:km});
+            driveKm+=km; driveLegs++;
+            computedWalk="d";
+          }else{
+            rows.push({leg:"transit",km:km});
+            transitLegs++;
+            computedWalk="t";
+          }
         }
       }
       if(kind.k==="park") parking=item;
+      if(computedWalk==null) computedWalk=car.has?"d":"t"; /* 그날 첫 좌표 항목 */
       prev=item;
     }
     rows.push({item:item,kind:kind,computedWalk:computedWalk});
+    var cev=carEvent(e.title);
+    if(cev===1) car.has=true; else if(cev===-1) car.has=false;
   });
   /* 하루 마지막: 주차장 복귀 */
   if(parking&&prev&&prev!==parking&&parking.lat!=null){
@@ -480,7 +520,7 @@ function buildDayRoute(day){
       walkKm+=back2*WALK_FACTOR;
     }
   }
-  return {rows:rows,walkKm:walkKm,driveKm:driveKm,driveLegs:driveLegs,spots:spots};
+  return {rows:rows,walkKm:walkKm,driveKm:driveKm,driveLegs:driveLegs,transitLegs:transitLegs,spots:spots};
 }
 
 /* ================= 렌더 ================= */
@@ -493,11 +533,11 @@ function itemHTML(item,dateKey,kind,computedWalk){
   var e=effective(item);
   var t=navTargets(item);
   if(!kind) kind=kindOf(item,e.title);
-  var walkFlag=(edits[item.id]&&edits[item.id].walk!=null)
-    ? edits[item.id].walk
-    : (computedWalk!=null?computedWalk:(item.mode==="w"));
+  var mode=(edits[item.id]&&edits[item.id].walk!=null)
+    ? (edits[item.id].walk?"w":"d")
+    : (computedWalk!=null?computedWalk:(item.mode==="w"?"w":"d"));
   var cls="item kind-"+kind.k
-    +(computedWalk===true?" walknode":"")
+    +(computedWalk==="w"?" walknode":"")
     +(item.type==="hotel"?" hotel":"")
     +(item.type==="flight"?" flight":"")
     +(done[item.id]?" done":"");
@@ -516,10 +556,10 @@ function itemHTML(item,dateKey,kind,computedWalk){
 
   var btns="";
   if(t&&item.type!=="flight"&&item.type!=="info"){
-    var icon=walkFlag?"🚶":"🚗";
-    btns+='<button class="nav-btn nav-g'+(walkFlag?" walk":"")+'" data-navg="'+item.id+'" data-walk="'+(walkFlag?"1":"0")+'">'+icon+' 구글 네비</button>';
-    if(!IS_ANDROID){
-      btns+='<button class="nav-btn nav-a'+(walkFlag?" walk":"")+'" data-nava="'+item.id+'" data-walk="'+(walkFlag?"1":"0")+'"> 애플 네비</button>';
+    var micon=mode==="w"?"🚶":(mode==="t"?"🚇":"🚗");
+    btns+='<button class="nav-btn nav-g'+(mode==="w"?" walk":"")+'" data-navg="'+item.id+'" data-mode="'+mode+'">'+micon+' 구글 네비</button>';
+    if(mode!=="t"){
+      btns+='<button class="nav-btn nav-t" data-navg="'+item.id+'" data-mode="t">🚇 대중교통</button>';
     }
   }
   if(item.type==="spot"){
@@ -567,12 +607,18 @@ function render(){
   }
 
   var mh="",th="";
+  /* 여행에 렌트카 언급이 있으면 픽업 전까지는 '차 없음'으로 시작 */
+  var tripHasCar=trip.days.some(function(d){
+    return d.items.some(function(it){ return carEvent(effective(it).title)!==0; });
+  });
+  var carState={has:!tripHasCar};
   trip.days.forEach(function(day){
     var isToday=day.date===todayStr;
-    var rt=buildDayRoute(day);
+    var rt=buildDayRoute(day,carState);
     var fkey=trip.id+"|"+day.date;
     var isFold=!!foldMap[fkey];
-    var chips=(rt.driveLegs?("🚗 "+rt.driveLegs+"구간 · "):"")
+    var chips=(rt.driveLegs?("🚗 "+rt.driveLegs+" · "):"")
+      +(rt.transitLegs?("🚇 "+rt.transitLegs+" · "):"")
       +(rt.walkKm>=0.05?("🚶 "+rt.walkKm.toFixed(1)+"km · "):"")
       +"📍 "+rt.spots+"곳";
     th+='<button class="tab'+(isToday?" today":"")+'" data-jump="day_'+esc(day.date)+'">'+esc(day.label)+'</button>';
@@ -586,6 +632,8 @@ function render(){
     rt.rows.forEach(function(r){
       if(r.leg==="walk") mh+='<div class="leg walk">🚶 '+r.m+'m · 약 '+r.min+'분</div>';
       else if(r.leg==="drive") mh+='<div class="leg drive">🚗 차량 이동 · 약 '+r.km+'km</div>';
+      else if(r.leg==="transit") mh+='<div class="leg transit">🚇 대중교통 이동 · 약 '+r.km+'km</div>';
+      else if(r.leg==="far") mh+='<div class="leg fartravel">✈️ 장거리 이동</div>';
       else if(r.leg==="back") mh+='<div class="leg back">↩ 🅿 주차장 복귀 · 도보 약 '+r.min+'분</div>';
       else mh+=itemHTML(r.item,day.date,r.kind,r.computedWalk);
     });
@@ -1480,7 +1528,7 @@ document.getElementById("saveBtn").addEventListener("click",function(){
 
 /* ================= 이벤트 위임 ================= */
 document.body.addEventListener("click",function(ev){
-  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-nava],[data-info],[data-park],[data-fold]");
+  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold]");
   if(!el) return;
   if(el.dataset.park){
     var pitem=findItem(el.dataset.park);
@@ -1490,14 +1538,12 @@ document.body.addEventListener("click",function(ev){
     }
     return;
   }
-  if(el.dataset.navg||el.dataset.nava){
-    var nid=el.dataset.navg||el.dataset.nava;
-    var nitem=findItem(nid);
+  if(el.dataset.navg){
+    var nitem=findItem(el.dataset.navg);
     if(!nitem) return;
     var nt=navTargets(nitem);
     if(!nt) return;
-    var nw=el.dataset.walk==="1";
-    if(el.dataset.navg) openGoogleNav(nt,nw); else openAppleNav(nt,nw);
+    openGoogleNav(nt,el.dataset.mode||"d");
     return;
   }
   if(el.dataset.info){
