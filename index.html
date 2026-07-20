@@ -230,7 +230,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v10.1 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v10.2 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -556,11 +556,10 @@ function itemHTML(item,dateKey,kind,computedWalk){
 
   var btns="";
   if(t&&item.type!=="flight"&&item.type!=="info"){
-    var micon=mode==="w"?"🚶":(mode==="t"?"🚇":"🚗");
-    btns+='<button class="nav-btn nav-g'+(mode==="w"?" walk":"")+'" data-navg="'+item.id+'" data-mode="'+mode+'">'+micon+' 구글 네비</button>';
-    if(mode!=="t"){
-      btns+='<button class="nav-btn nav-t" data-navg="'+item.id+'" data-mode="t">🚇 대중교통</button>';
-    }
+    /* 1번 버튼: 차량(🚗) 또는 도보(🚶) 턴바이턴 · 2번 버튼: 대중교통(도보 포함) — 항상 표시 */
+    var p=(mode==="w")?"w":"d";
+    btns+='<button class="nav-btn nav-g'+(p==="w"?" walk":"")+'" data-navg="'+item.id+'" data-mode="'+p+'">'+(p==="w"?"🚶":"🚗")+' 구글 네비</button>';
+    btns+='<button class="nav-btn nav-t" data-navg="'+item.id+'" data-mode="t">🚇 대중교통</button>';
   }
   if(item.type==="spot"){
     btns+='<button class="info-btn" data-info="'+item.id+'">ℹ️</button>';
