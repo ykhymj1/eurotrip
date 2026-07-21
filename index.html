@@ -211,6 +211,9 @@ section.day{margin-bottom:26px}
 .qr-row .lb{font-size:12px;color:var(--sub)}
 .qr-row .open{background:#5B4B8A;color:#fff;border:none;border-radius:9px;padding:9px 12px;font-size:13px;font-weight:700;cursor:pointer}
 .qr-row .rm{background:#fff;border:1.5px solid var(--line);color:var(--danger);border-radius:9px;padding:9px 10px;font-size:13px;cursor:pointer}
+.qr-drop{border:2px dashed var(--line);border-radius:12px;padding:16px 12px;text-align:center;
+  color:var(--sub);font-size:13.5px;font-weight:700;cursor:pointer;margin-top:12px;line-height:1.6}
+.qr-drop:hover{border-color:#5B4B8A;color:#5B4B8A}
 .qr-empty{color:var(--sub);font-size:13.5px;text-align:center;padding:18px 6px;line-height:1.7}
 
 /* 전체화면 뷰어 */
@@ -260,7 +263,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v12 · 🎫 QR 지갑 · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v12.1 · 🎫 QR 지갑 · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -299,6 +302,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
       <datalist id="qrPersons"></datalist>
       <label>구분</label>
       <input type="text" id="qr_label" placeholder="예: 입국 통합QR / 세관신고">
+      <div class="qr-drop" id="qrDrop">🖼 QR 이미지를 여기로 끌어다 놓거나<br>클릭해서 선택하세요 (여러 장 동시 가능)</div>
       <div class="btnrow">
         <button class="save-btn" id="qrPickBtn">📷 이미지 선택 후 저장</button>
         <button class="cancel-btn" id="qrFormCancel">취소</button>
@@ -309,7 +313,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
     <button class="close-btn" id="qrClose">닫기</button>
   </div>
 </div>
-<input type="file" id="qrFile" accept="image/*" style="display:none">
+<input type="file" id="qrFile" accept="image/*" multiple style="display:none">
 
 <!-- QR 전체화면 뷰어 -->
 <div id="qrView">
@@ -780,25 +784,59 @@ document.getElementById("qrPickBtn").addEventListener("click",function(){
   if(!document.getElementById("qr_person").value.trim()){ alert("이름을 입력해주세요"); return; }
   document.getElementById("qrFile").click();
 });
-document.getElementById("qrFile").addEventListener("change",function(ev){
-  var f=ev.target.files[0]; ev.target.value="";
-  if(!f) return;
+/* 파일 1장 → QR 저장 */
+function qrAddFromFile(file,person){
   var msg=document.getElementById("qrFormMsg");
   msg.textContent="이미지 처리 중…";
-  compressImage(f).then(function(dataUrl){
+  return compressImage(file).then(function(dataUrl){
     var id="q_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
+    var nm=(person!=null?person:document.getElementById("qr_person").value).trim();
     qrState.items[id]={
       id:id,
       date:document.getElementById("qr_date").value,
-      person:document.getElementById("qr_person").value.trim(),
+      person:nm,
       label:document.getElementById("qr_label").value.trim()||"입국 QR",
       img:dataUrl, ts:Date.now()
     };
     qrSave(); qrPush();
-    msg.textContent="✅ 저장됨 ("+Math.round(dataUrl.length/1024)+"KB) · 이름만 바꿔 동반자 QR도 이어서 추가하세요";
+    msg.textContent="✅ "+(nm||"이름 없음")+" 저장됨 ("+Math.round(dataUrl.length/1024)+"KB) · 이름만 바꿔 이어서 추가하세요";
     document.getElementById("qr_person").value="";
     qrRenderList(); render();
   }).catch(function(e){ msg.textContent="⚠ "+e.message; });
+}
+
+/* 이미지 여러 장 처리 (드래그&드롭·다중 선택) */
+function qrHandleFiles(files){
+  var imgs=[].slice.call(files||[]).filter(function(f){
+    return /^image\//.test(f.type)||/\.(png|jpe?g|webp|gif|heic)$/i.test(f.name);
+  });
+  if(!imgs.length) return false;
+  document.getElementById("qrForm").style.display="block";
+  if(!document.getElementById("qr_label").value) document.getElementById("qr_label").value="입국 통합QR";
+  var names=[],typed=document.getElementById("qr_person").value.trim();
+  for(var i=0;i<imgs.length;i++){
+    var nm=(i===0&&typed)?typed:"";
+    if(!nm){
+      nm=window.prompt(imgs.length>1?((i+1)+"/"+imgs.length+"번째 QR의 이름을 입력하세요 (예: 유경호)"):"이 QR의 이름을 입력하세요 (예: 유경호)","");
+      if(nm===null){ names.push(null); continue; }
+    }
+    names.push(nm.trim());
+  }
+  var chain=Promise.resolve();
+  imgs.forEach(function(f,i){
+    if(!names[i]) return;
+    chain=chain.then(function(){ return qrAddFromFile(f,names[i]); });
+  });
+  return true;
+}
+
+document.getElementById("qrFile").addEventListener("change",function(ev){
+  var fs=ev.target.files; 
+  if(fs&&fs.length) qrHandleFiles(fs);
+  ev.target.value="";
+});
+document.getElementById("qrDrop").addEventListener("click",function(){
+  document.getElementById("qrFile").click();
 });
 
 /* ---- 전체화면 뷰어 ---- */
@@ -1266,6 +1304,12 @@ document.getElementById("pdfInput").addEventListener("change",function(ev){
   document.addEventListener("dragenter",function(e){
     e.preventDefault();
     depth++;
+    var box=zone.querySelector(".box");
+    if(box){
+      box.innerHTML=document.getElementById("qrOverlay").classList.contains("show")
+        ? '🎫 QR 이미지를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">여러 장을 한 번에 놓으면 순서대로 이름을 물어봅니다</span>'
+        : '📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span>';
+    }
     zone.classList.add("show");
   });
   document.addEventListener("dragover",function(e){ e.preventDefault(); });
@@ -1278,10 +1322,23 @@ document.getElementById("pdfInput").addEventListener("change",function(ev){
     e.preventDefault();
     depth=0;
     zone.classList.remove("show");
-    var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
-    if(!f) return;
+    var files=e.dataTransfer&&e.dataTransfer.files;
+    if(!files||!files.length) return;
+    var f=files[0];
+    var isImg=/^image\//.test(f.type)||/\.(png|jpe?g|webp|gif|heic)$/i.test(f.name);
+    /* QR 지갑이 열려 있고 이미지 → QR로 저장 */
+    if(isImg&&document.getElementById("qrOverlay").classList.contains("show")){
+      qrHandleFiles(files);
+      return;
+    }
     if(f.type!=="application/pdf"&&!/\.pdf$/i.test(f.name)){
-      status("⚠ PDF 파일만 업로드할 수 있습니다");
+      if(isImg){
+        status("⚠ QR 이미지는 🎫 버튼으로 지갑을 연 뒤 놓아주세요");
+        qrOpenWallet(null);
+        document.getElementById("qrForm").style.display="block";
+      }else{
+        status("⚠ PDF 파일만 업로드할 수 있습니다");
+      }
       return;
     }
     handlePdf(f);
