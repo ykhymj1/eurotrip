@@ -1,0 +1,1704 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#22303F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>여행 일정 네비</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<style>
+:root{
+  --bg:#F5F3EE; --card:#FFFFFF; --ink:#22303F; --sub:#6B7482;
+  --accent:#C46A2B; --accent-soft:#F6E7D8;
+  --hotel:#6E4A5E; --hotel-soft:#F0E6EC;
+  --flight:#3D6B8E; --flight-soft:#E3EDF4;
+  --ok:#3E7C4F; --line:#E4DFD5; --danger:#B04A3A;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR","Malgun Gothic",sans-serif;
+  font-size:16px; line-height:1.45;}
+button{font-family:inherit}
+
+/* ===== 상단 헤더 ===== */
+header{
+  background:var(--ink); color:#F5F3EE; padding:14px 16px 8px;
+  padding-top:calc(14px + env(safe-area-inset-top));
+}
+header h1{margin:0;font-size:18px;font-weight:700;letter-spacing:-.3px}
+.triprow{display:flex;gap:8px;margin-top:10px;align-items:center}
+#tripSel{
+  flex:1;min-width:0;background:rgba(255,255,255,.1);color:#F5F3EE;
+  border:1px solid rgba(255,255,255,.25);border-radius:10px;padding:9px 10px;
+  font-size:14px;font-weight:600;font-family:inherit;
+}
+#tripSel option{color:#22303F}
+.hbtn{
+  flex:0 0 auto;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);
+  color:#F5F3EE;border-radius:10px;padding:9px 12px;font-size:14px;font-weight:700;cursor:pointer;
+}
+.hbtn.pdf{background:var(--accent);border-color:var(--accent)}
+#pdfInput{display:none}
+#parseStatus{font-size:12px;opacity:.8;margin-top:6px;min-height:15px}
+
+/* ===== 날짜 탭 ===== */
+nav.tabs{
+  position:sticky; top:0; z-index:50; background:var(--ink);
+  display:flex; overflow-x:auto; gap:6px; padding:8px 12px 12px;
+  scrollbar-width:none;
+}
+nav.tabs::-webkit-scrollbar{display:none}
+.tab{
+  flex:0 0 auto; border:1px solid rgba(255,255,255,.25); background:transparent;
+  color:#F5F3EE; border-radius:20px; padding:6px 13px; font-size:13px; font-weight:600;
+  cursor:pointer; white-space:nowrap;
+}
+.tab.today{background:var(--accent); border-color:var(--accent); color:#fff}
+
+/* ===== 본문 ===== */
+main{max-width:640px;margin:0 auto;padding:12px 12px 90px}
+
+.empty{color:var(--sub);padding:36px 18px;font-size:14.5px;line-height:1.9}
+.empty h2{color:var(--ink);font-size:17px;margin:0 0 8px}
+.empty code{background:#ECE8DF;border-radius:6px;padding:2px 7px;font-size:13px;color:var(--ink)}
+.empty .ex{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;font-size:13px;white-space:pre-wrap;color:var(--ink)}
+
+section.day{margin-bottom:26px}
+.dayhead{display:flex; align-items:baseline; gap:10px; padding:10px 4px 6px;}
+.dayhead .d{font-size:20px;font-weight:800;letter-spacing:-.5px}
+.dayhead.is-today .d{color:var(--accent)}
+.todaybadge{font-size:11px;background:var(--accent);color:#fff;border-radius:10px;padding:2px 8px;font-weight:700}
+
+.items{position:relative; padding-left:14px}
+.items::before{
+  content:""; position:absolute; left:4px; top:8px; bottom:8px;
+  width:2px; background:var(--line); border-radius:2px;
+}
+.item{
+  position:relative; background:var(--card); border:1px solid var(--line);
+  border-radius:14px; padding:12px 12px 10px; margin-bottom:10px;
+  box-shadow:0 1px 2px rgba(34,48,63,.05);
+}
+.item::before{
+  content:""; position:absolute; left:-14px; top:18px; width:10px; height:10px;
+  border-radius:50%; background:var(--accent); border:2px solid var(--bg);
+  transform:translateX(-1px);
+}
+.item.hotel::before{background:var(--hotel)}
+.item.flight::before{background:var(--flight)}
+.item.done{opacity:.55}
+.item.done .t-title{text-decoration:line-through}
+
+.row1{display:flex;align-items:flex-start;gap:8px}
+.time{
+  flex:0 0 auto; font-size:13px; font-weight:800; color:var(--accent);
+  background:var(--accent-soft); border-radius:8px; padding:3px 8px; margin-top:1px;
+}
+.item.hotel .time{color:var(--hotel);background:var(--hotel-soft)}
+.item.flight .time{color:var(--flight);background:var(--flight-soft)}
+.t-title{font-size:15.5px;font-weight:700;letter-spacing:-.2px;flex:1;min-width:0;word-break:break-word}
+.chk{
+  flex:0 0 auto; width:26px;height:26px;border-radius:8px;border:1.5px solid var(--line);
+  background:#fff; cursor:pointer; font-size:15px; line-height:1; color:transparent;
+}
+.item.done .chk{background:var(--ok);border-color:var(--ok);color:#fff}
+
+.desc{font-size:13px;color:var(--sub);margin:6px 2px 0;word-break:break-word}
+.memo{
+  font-size:13px;color:var(--hotel);background:var(--hotel-soft);
+  border-radius:8px;padding:6px 9px;margin-top:7px;white-space:pre-wrap;
+}
+.coordtag{font-size:11.5px;color:var(--ok);margin-top:5px;font-weight:700}
+
+.btnrow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.nav-btn{
+  flex:1 1 auto; min-width:105px; display:flex;align-items:center;justify-content:center;gap:6px;
+  border:none;border-radius:10px;padding:11px 8px;font-size:14px;font-weight:700;cursor:pointer;
+  text-decoration:none; color:#fff;
+}
+.nav-g{background:#1A73E8}
+.nav-t{background:#5B4B8A}
+.leg.transit{color:#5B4B8A;font-weight:800;padding-top:2px}
+.leg.fartravel{color:var(--flight);font-weight:800;padding-top:2px}
+.nav-a{background:#111}
+.nav-btn.walk{filter:saturate(.6)}
+.info-btn{
+  flex:0 0 auto; border:1.5px solid var(--flight); background:var(--flight-soft); color:var(--flight);
+  border-radius:10px; padding:11px 12px; font-size:14px; font-weight:700; cursor:pointer;
+}
+.park-btn{
+  flex:0 0 auto; border:1.5px solid var(--ok); background:#E8F1EA; color:var(--ok);
+  border-radius:10px; padding:11px 12px; font-size:14px; font-weight:700; cursor:pointer;
+}
+.edit-btn{
+  flex:0 0 auto; border:1.5px solid var(--line); background:#fff; color:var(--sub);
+  border-radius:10px; padding:11px 12px; font-size:14px; cursor:pointer;
+}
+.del-btn{flex:0 0 auto;border:1.5px solid var(--line);background:#fff;color:var(--danger);border-radius:10px;padding:11px 12px;font-size:14px;cursor:pointer}
+
+.addrow{
+  width:100%; border:1.5px dashed var(--line); background:transparent; color:var(--sub);
+  border-radius:12px; padding:11px; font-size:14px; font-weight:600; cursor:pointer; margin-top:2px;
+}
+
+/* ===== v10 동선 UI ===== */
+.dayhead{cursor:pointer;user-select:none;flex-wrap:wrap;align-items:center}
+.dayhead .chips{font-size:11.5px;color:var(--sub);font-weight:700;background:#ECE8DF;border-radius:10px;padding:3px 9px;margin-left:auto}
+.dayhead .foldarrow{color:var(--sub);font-size:13px;margin-left:6px;transition:transform .15s;display:inline-block}
+.day.folded .foldarrow{transform:rotate(-90deg)}
+.day.folded .items,.day.folded .addrow{display:none}
+.item::before{background:var(--ok)}
+.item.kind-park::before{background:#2E6DA4}
+.item.kind-meal::before{background:var(--accent)}
+.item.kind-info::before{background:#B9B2A6}
+.item.walknode{margin-left:18px}
+.leg{position:relative;padding:0 0 10px 26px;font-size:12.5px;color:var(--sub);font-weight:600}
+.leg.walk{color:#3E7C4F;margin-left:18px}
+.leg.drive{color:#2E6DA4;font-weight:800;padding-top:2px}
+.leg.back{color:#2E6DA4;margin-left:18px}
+
+/* ===== 모달 공통 ===== */
+.overlay{
+  position:fixed; inset:0; background:rgba(34,48,63,.5); z-index:100;
+  display:none; align-items:flex-end; justify-content:center;
+}
+.overlay.show{display:flex}
+.sheet{
+  background:#fff; width:100%; max-width:640px; border-radius:18px 18px 0 0;
+  padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+  max-height:88vh; overflow-y:auto;
+}
+.sheet h3{margin:0 0 6px;font-size:17px}
+.sheet label{display:block;font-size:12.5px;font-weight:700;color:var(--sub);margin:12px 0 4px}
+.sheet input[type=text],.sheet textarea{
+  width:100%; border:1.5px solid var(--line); border-radius:10px; padding:11px;
+  font-size:15px; font-family:inherit; background:var(--bg);
+}
+.sheet textarea{resize:vertical;min-height:60px}
+.hint{font-size:11.5px;color:var(--sub);margin-top:4px}
+.modewrap{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px;font-weight:600}
+.modewrap input{width:20px;height:20px}
+.sheet .btnrow{margin-top:18px}
+.save-btn{flex:1;background:var(--ink);color:#fff;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:pointer}
+.cancel-btn{flex:0 0 auto;background:#fff;border:1.5px solid var(--line);color:var(--sub);border-radius:10px;padding:13px 18px;font-size:15px;cursor:pointer}
+
+/* ===== 관광지 설명 모달 ===== */
+#infoImg{width:100%;max-height:190px;object-fit:cover;border-radius:12px;margin:8px 0;display:none}
+#infoBody{font-size:14.5px;line-height:1.7;color:var(--ink);margin-top:6px;white-space:pre-wrap}
+#infoSrc{font-size:12px;color:var(--sub);margin-top:12px}
+#infoSrc a{color:var(--flight)}
+.close-btn{width:100%;background:var(--ink);color:#fff;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;margin-top:16px}
+.ai-btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14.5px;font-weight:700;cursor:pointer;margin-top:14px;display:none}
+#aiBox{font-size:14.5px;line-height:1.75;color:var(--ink);margin-top:12px;white-space:pre-wrap;background:var(--accent-soft);border-radius:12px;padding:0;max-height:0;overflow:hidden;transition:none}
+#aiBox.show{padding:12px 14px;max-height:none;overflow:visible}
+#aiBox .ai-src{font-size:11.5px;color:var(--sub);margin-top:8px}
+
+footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
+
+/* ===== 드래그&드롭 ===== */
+#dropZone{
+  position:fixed; inset:0; z-index:200; display:none;
+  background:rgba(34,48,63,.72);
+  align-items:center; justify-content:center;
+}
+#dropZone.show{display:flex}
+#dropZone .box{
+  border:3px dashed #F5F3EE; border-radius:20px; color:#F5F3EE;
+  padding:46px 60px; font-size:19px; font-weight:800; text-align:center;
+  pointer-events:none;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>여행 일정 네비</h1>
+  <div class="triprow">
+    <select id="tripSel"></select>
+    <button class="hbtn pdf" id="pdfBtn">📄 PDF</button>
+    <button class="hbtn" id="syncBtn">☁</button>
+    <button class="hbtn" id="delTripBtn">🗑</button>
+  </div>
+  <div id="parseStatus"></div>
+  <input type="file" id="pdfInput" accept="application/pdf">
+</header>
+<nav class="tabs" id="tabs"></nav>
+
+<main id="main"></main>
+
+<footer>v11 · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+
+<div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
+
+<!-- 편집 모달 -->
+<div class="overlay" id="overlay">
+  <div class="sheet">
+    <h3 id="sheetTitle">일정 편집</h3>
+    <label>시간</label>
+    <input type="text" id="f_time" placeholder="예: 14:30">
+    <label>이름</label>
+    <input type="text" id="f_title" placeholder="예: Hotel Villa Vinum Cochem">
+    <label>네비 목적지 (장소명·주소 또는 위도,경도)</label>
+    <input type="text" id="f_dest" placeholder="예: 50.1450,7.1662">
+    <div class="hint">오프라인 네비를 쓰려면 좌표 입력을 권장합니다 (구글지도에서 장소를 길게 누르면 좌표 표시 → 복사).</div>
+    <label>메모 (예약번호, 개장시간 등)</label>
+    <textarea id="f_memo"></textarea>
+    <div class="modewrap"><input type="checkbox" id="f_walk"><label for="f_walk" style="margin:0">🚶 도보 모드로 네비 열기</label></div>
+    <div class="btnrow">
+      <button class="save-btn" id="saveBtn">저장</button>
+      <button class="cancel-btn" id="cancelBtn">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- 동기화 설정 모달 -->
+<div class="overlay" id="syncOverlay">
+  <div class="sheet">
+    <h3>☁ 기기 간 동기화</h3>
+    <div class="hint" style="margin-top:2px">같은 코드를 입력한 모든 기기(PC·Pixel·아이폰)에서 일정·체크·메모가 실시간 공유됩니다. 코드는 비밀번호처럼 남이 추측하기 어렵게 만드세요.</div>
+    <label>동기화 코드 (영문·숫자 6자 이상)</label>
+    <input type="text" id="f_synccode" placeholder="예: ykh-travel-2026" autocapitalize="off" autocomplete="off">
+    <div id="syncState" class="hint"></div>
+    <div class="btnrow">
+      <button class="save-btn" id="syncSaveBtn">연결</button>
+      <button class="cancel-btn" id="syncOffBtn">해제</button>
+      <button class="cancel-btn" id="syncCloseBtn">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 관광지 설명 모달 -->
+<div class="overlay" id="infoOverlay">
+  <div class="sheet">
+    <h3 id="infoTitle"></h3>
+    <img id="infoImg" alt="">
+    <div id="infoBody"></div>
+    <div id="infoSrc"></div>
+    <button class="ai-btn" id="aiSumBtn">🤖 AI 여행 요약 보기</button>
+    <div id="aiBox"></div>
+    <button class="close-btn" id="infoClose">닫기</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ================= 저장소 ================= */
+var LS_TRIPS="wtrip_trips_v4", LS_CUR="wtrip_cur_v4",
+    LS_EDIT="wtrip_edits_v4", LS_DONE="wtrip_done_v4", LS_WIKI="wtrip_wiki_v4";
+function loadObj(k,def){ try{ var v=JSON.parse(localStorage.getItem(k)); return v==null?def:v; }catch(e){ return def; } }
+function save(k,v){ localStorage.setItem(k,JSON.stringify(v)); }
+
+var trips=loadObj(LS_TRIPS,[]);
+var currentId=loadObj(LS_CUR,null);
+var edits=loadObj(LS_EDIT,{}), done=loadObj(LS_DONE,{});
+var wikiCache=loadObj(LS_WIKI,{});
+
+function currentTrip(){
+  return trips.find(function(t){ return t.id===currentId; })||trips[0]||null;
+}
+
+/* ================= 유틸 ================= */
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]; }); }
+function pad2(n){ return String(n).padStart(2,"0"); }
+
+function effective(item){
+  var e=edits[item.id]||{};
+  return {
+    time: e.time!=null&&e.time!==""?e.time:item.time,
+    title: e.title!=null&&e.title!==""?e.title:item.title,
+    memo: e.memo||"",
+    dest: e.dest!=null?e.dest:null,
+    walk: e.walk!=null?e.walk:(item.mode==="w"),
+    hasEdit: e.title!=null&&e.title!==""
+  };
+}
+
+function parseCoordStr(s){
+  var m=/^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(s||"");
+  return m?{lat:m[1],lng:m[2]}:null;
+}
+
+function navTargets(item){
+  var e=effective(item);
+  if(e.dest!==null&&e.dest!==""){
+    var c=parseCoordStr(e.dest);
+    return c?{ll:c.lat+","+c.lng,q:null}:{ll:null,q:e.dest};
+  }
+  if(item.lat!=null) return {ll:item.lat+","+item.lng,q:null};
+  var qq=item.q||(e.hasEdit?e.title:null);
+  if(qq) return {ll:null,q:qq};
+  return null;
+}
+
+function gmapUrl(t,walk){
+  var dest=t.ll?t.ll:t.q;
+  return "https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(dest)
+      +"&travelmode="+(walk?"walking":"driving");
+}
+
+/* ===== 플랫폼 감지 + 오프라인 친화 네비 실행 ===== */
+var IS_ANDROID=/Android/i.test(navigator.userAgent);
+var IS_IOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+function launchWithFallback(schemeUrl,fallbackUrl){
+  var t=setTimeout(function(){
+    if(!document.hidden) window.open(fallbackUrl,"_blank");
+  },1500);
+  var clear=function(){ clearTimeout(t); document.removeEventListener("visibilitychange",clear); };
+  document.addEventListener("visibilitychange",clear);
+  location.href=schemeUrl;
+}
+
+/* mode: 'd'(차량) | 'w'(도보) | 't'(대중교통) */
+function gmapModeUrl(t,mode){
+  var dest=t.ll?t.ll:t.q;
+  var tm=mode==="w"?"walking":(mode==="t"?"transit":"driving");
+  return "https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(dest)+"&travelmode="+tm;
+}
+function openGoogleNav(t,mode){
+  var dest=t.ll?t.ll:t.q;
+  var fallback=gmapModeUrl(t,mode);
+  if(mode==="t"){
+    /* 대중교통은 턴바이턴 스킴이 없어 경로화면으로 연결 */
+    if(IS_IOS){
+      launchWithFallback("comgooglemaps://?daddr="+encodeURIComponent(dest)+"&directionsmode=transit",fallback);
+    }else{
+      window.open(fallback,"_blank");
+    }
+    return;
+  }
+  if(IS_ANDROID){
+    launchWithFallback("google.navigation:q="+encodeURIComponent(dest)+"&mode="+(mode==="w"?"w":"d"),fallback);
+  }else if(IS_IOS){
+    launchWithFallback("comgooglemaps://?daddr="+encodeURIComponent(dest)
+      +"&directionsmode="+(mode==="w"?"walking":"driving"),fallback);
+  }else{
+    window.open(fallback,"_blank");
+  }
+}
+
+/* 좌표 주변 검색 (식당 등) */
+function openNearby(ll,q){
+  var web="https://www.google.com/maps/search/"+encodeURIComponent(q)+"/@"+ll+",16z";
+  if(IS_ANDROID){ launchWithFallback("geo:"+ll+"?q="+encodeURIComponent(q),web); }
+  else if(IS_IOS){ launchWithFallback("comgooglemaps://?q="+encodeURIComponent(q)+"&center="+ll+"&zoom=16",web); }
+  else{ window.open(web,"_blank"); }
+}
+
+/* 목적지 주변 주차장 검색 (구글지도) */
+function openParking(t){
+  if(t.ll){
+    var web="https://www.google.com/maps/search/parking/@"+t.ll+",16z";
+    if(IS_ANDROID){
+      launchWithFallback("geo:"+t.ll+"?q="+encodeURIComponent("parking"),web);
+    }else if(IS_IOS){
+      launchWithFallback("comgooglemaps://?q=parking&center="+t.ll+"&zoom=16",web);
+    }else{
+      window.open(web,"_blank");
+    }
+  }else{
+    var q=(t.q||"")+" parking";
+    var web2="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(q);
+    if(IS_ANDROID){
+      launchWithFallback("geo:0,0?q="+encodeURIComponent(q),web2);
+    }else if(IS_IOS){
+      launchWithFallback("comgooglemaps://?q="+encodeURIComponent(q),web2);
+    }else{
+      window.open(web2,"_blank");
+    }
+  }
+}
+
+/* ================= v10 동선 빌더 ================= */
+var LS_FOLD="wtrip_fold_v10";
+var foldMap=loadObj(LS_FOLD,{});
+
+function haversineKm(a,b,c,d){
+  var R=6371,rad=Math.PI/180;
+  var x=(c-a)*rad,y=(d-b)*rad;
+  var h=Math.sin(x/2)*Math.sin(x/2)+Math.cos(a*rad)*Math.cos(c*rad)*Math.sin(y/2)*Math.sin(y/2);
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+/* 항목 종류·아이콘 판별 */
+function kindOf(item,title){
+  var t=title||item.title||"";
+  if(item.type==="hotel") return {k:"hotel",ic:"🏨"};
+  if(item.type==="flight") return {k:"flight",ic:"✈️"};
+  if(item.type==="info") return {k:"info",ic:""};
+  if(/주차|parkplatz|parking|parkeer|park\s*and\s*ride/i.test(t)) return {k:"park",ic:"🅿"};
+  if(/카페|coffee|café/i.test(t)) return {k:"meal",ic:"☕"};
+  if(/점심|저녁|아침|식사|레스토랑|맛집|restaurant|lunch|dinner|브런치/i.test(t)) return {k:"meal",ic:"🍴"};
+  var ic="📍";
+  if(/성당|교회|church|cathedral|kerk|dom\b/i.test(t)) ic="⛪";
+  else if(/폭포|falls|cascade/i.test(t)) ic="💧";
+  else if(/호수|lake|meer\b/i.test(t)) ic="🏞";
+  else if(/다리|bridge|brücke|brug/i.test(t)) ic="🌉";
+  else if(/미술관|박물관|museum|galerie|gallery/i.test(t)) ic="🎨";
+  else if(/시장|market|markt/i.test(t)) ic="🛍";
+  else if(/곤돌라|케이블|gondola|seilbahn|lift/i.test(t)) ic="🚡";
+  else if(/동굴|cave|grotte/i.test(t)) ic="🕳";
+  else if(/종탑|타워|tower|belfort|belfry/i.test(t)) ic="🗼";
+  else if(/전망|viewpoint|lookout|파노라마|panorama/i.test(t)) ic="🔭";
+  else if(/궁|palace|paleis/i.test(t)) ic="🏛";
+  else if(/성\b|성[^당]|castle|burg|citadel|kasteel|steen/i.test(t)) ic="🏰";
+  else if(/풍차|mill|molen/i.test(t)) ic="🌬";
+  else if(/공항|airport/i.test(t)) ic="✈️";
+  return {k:"spot",ic:ic};
+}
+
+/* 렌트카 픽업(+1)/반납(-1) 감지 */
+function carEvent(title){
+  if(!/렌트카|rent\s*a?\s*car|허츠|hertz/i.test(title||"")) return 0;
+  return /반납|return/i.test(title)?-1:1;
+}
+
+/* ===== PDF 내용 분석: 각 항목의 "역할" 판정 ===== */
+/* 이동 목적지가 아닌 메모성 항목 */
+var NO_NAV_RE=/예약\s*(완료|필수|사이트)|티켓\s*예약|하산|체크\s*아웃|짐\s*(맡|맞)기|자동\s*결재|무료취소|시내\s*관광|시내\s*구경|못간\s*곳|어제\s*못간|관광$|구경$/;
+
+/* 이름 검색용 정리: 콜론 뒤 메모·설명성 괄호 제거 */
+function cleanDestName(t){
+  var s=String(t||"");
+  s=s.replace(/[:：].*$/,"");
+  s=s.replace(/\((?:[^)]*(?:예약|순위|생략|시간|간식|제철|유명|추천|이용)[^)]*)\)/g," ");
+  s=s.replace(/\s+/g," ").trim();
+  return s||String(t||"");
+}
+
+/* 여행 전체에서 도시/공항 이름을 추출해 렌트카 항목에 연결 */
+function buildCityMap(trip){
+  var flat=[];
+  trip.days.forEach(function(d){ d.items.forEach(function(it){ flat.push(it); }); });
+  var cities=flat.map(function(it){
+    var t=effective(it).title||"";
+    var m=/([A-Z][A-Za-z]{2,})\s+(?:International\s+)?Airport/.exec(t);
+    if(m) return {name:m[1].trim(),en:true};
+    var m2=/([가-힣]{2,8})\s*공항/.exec(t);
+    if(m2) return {name:m2[1].trim(),en:false};
+    var m3=/^([가-힣]{2,8})\s*(도착|출발)/.exec(t);
+    if(m3&&!/호텔|체크/.test(t)) return {name:m3[1].trim(),en:false};
+    return null;
+  });
+  var map={};
+  flat.forEach(function(it,i){
+    if(carEvent(effective(it).title)===0) return;
+    var c=null;
+    for(var j=i;j>=0&&!c;j--) if(cities[j]) c=cities[j];
+    for(var k=i;k<flat.length&&!c;k++) if(cities[k]) c=cities[k];
+    if(c) map[it.id]=c;
+  });
+  return map;
+}
+
+/* 항목 역할 판정: {nav, dest, nearbyLL, note} */
+function analyzeItem(item,e,kind,cityMap,prevCoord){
+  var title=e.title||"";
+  var hasCoord=(item.lat!=null)||(e.dest!=null&&e.dest!=="");
+
+  /* 1) 렌트카 픽업/반납 → 해당 공항 렌트카 영업소를 목적지로 */
+  var cev=carEvent(title);
+  if(cev!==0){
+    var c=cityMap&&cityMap[item.id];
+    if(c){
+      var q=c.en?(c.name+" Airport car rental"):(c.name+" 공항 "+(/허츠|hertz/i.test(title)?"허츠 ":"")+"렌트카");
+      return {nav:true,dest:{ll:null,q:q},note:(cev===-1?"반납 장소":"픽업 장소")+": "+q};
+    }
+    return {nav:false}; /* 도시를 못 찾으면 엉뚱한 곳 대신 버튼 없음 */
+  }
+
+  /* 2) 예약·메모성 항목 (좌표 없을 때) */
+  if(!hasCoord&&NO_NAV_RE.test(title)) return {nav:false};
+
+  /* 3) 좌표가 있으면 항공편 표기라도 실제 목적지 (예: 하네다 T2로 이동) */
+  if(hasCoord) return {nav:true,dest:null};
+
+  /* 4) 좌표 없는 항공·안내 항목 */
+  if(kind.k==="flight"||kind.k==="info") return {nav:false};
+
+  /* 5) 좌표 없는 식사 → 주변 식당 검색 버튼 */
+  if(kind.k==="meal") return {nav:false,nearbyLL:prevCoord||null};
+
+  /* 6) 그 외 → 정리된 이름으로 검색 */
+  return {nav:true,dest:{ll:null,q:cleanDestName(title)}};
+}
+
+/* 하루 일정 → 동선(도보/차량/대중교통 구간 + 주차 복귀 + 요약) */
+var WALK_MAX_KM=1.5, WALK_FACTOR=1.25, WALK_M_PER_MIN=75, DRIVE_FACTOR=1.3;
+function buildDayRoute(day,car,cityMap){
+  car=car||{has:true};
+  var rows=[],prev=null,parking=null;
+  var walkKm=0,driveKm=0,driveLegs=0,transitLegs=0,spots=0;
+  day.items.forEach(function(item){
+    var e=effective(item);
+    var kind=kindOf(item,e.title);
+    if(kind.k==="spot"||kind.k==="park"||kind.k==="meal") spots++;
+    var computedWalk=null;
+    if(item.lat!=null){
+      if(prev){
+        var d=haversineKm(prev.lat,prev.lng,item.lat,item.lng);
+        if(d<=WALK_MAX_KM){
+          var m=Math.round(d*1000*WALK_FACTOR);
+          var min=Math.max(1,Math.round(m/WALK_M_PER_MIN));
+          rows.push({leg:"walk",m:m,min:min});
+          walkKm+=d*WALK_FACTOR;
+          computedWalk="w";
+        }else{
+          /* 차량 구간 시작 — 직전 도보 클러스터가 주차장 기반이면 복귀 안내 먼저 */
+          if(parking&&prev!==parking&&parking.lat!=null){
+            var back=haversineKm(prev.lat,prev.lng,parking.lat,parking.lng);
+            if(back<=WALK_MAX_KM){
+              rows.push({leg:"back",min:Math.max(1,Math.round(back*1000*WALK_FACTOR/WALK_M_PER_MIN))});
+              walkKm+=back*WALK_FACTOR;
+            }
+          }
+          parking=null;
+          if(d>400){
+            /* 400km 초과 = 항공 등 장거리 구간 (도로 이동 아님) */
+            rows.push({leg:"far"});
+            computedWalk=car.has?"d":"t";
+            if(kind.k==="park") parking=item;
+            var anF=analyzeItem(item,e,kind,cityMap,prev&&prev.lat!=null?(prev.lat+","+prev.lng):null);
+            prev=item;
+            rows.push({item:item,kind:kind,computedWalk:computedWalk,an:anF});
+            var cevF=carEvent(e.title);
+            if(cevF===1) car.has=true; else if(cevF===-1) car.has=false;
+            return;
+          }
+          var km=Math.round(d*DRIVE_FACTOR);
+          if(car.has){
+            rows.push({leg:"drive",km:km});
+            driveKm+=km; driveLegs++;
+            computedWalk="d";
+          }else{
+            rows.push({leg:"transit",km:km});
+            transitLegs++;
+            computedWalk="t";
+          }
+        }
+      }
+      if(kind.k==="park") parking=item;
+      if(computedWalk==null) computedWalk=car.has?"d":"t"; /* 그날 첫 좌표 항목 */
+      prev=item;
+    }
+    var an=analyzeItem(item,e,kind,cityMap,prev&&prev.lat!=null?(prev.lat+","+prev.lng):null);
+    rows.push({item:item,kind:kind,computedWalk:computedWalk,an:an});
+    var cev=carEvent(e.title);
+    if(cev===1) car.has=true; else if(cev===-1) car.has=false;
+  });
+  /* 하루 마지막: 주차장 복귀 */
+  if(parking&&prev&&prev!==parking&&parking.lat!=null){
+    var back2=haversineKm(prev.lat,prev.lng,parking.lat,parking.lng);
+    if(back2<=WALK_MAX_KM){
+      rows.push({leg:"back",min:Math.max(1,Math.round(back2*1000*WALK_FACTOR/WALK_M_PER_MIN))});
+      walkKm+=back2*WALK_FACTOR;
+    }
+  }
+  return {rows:rows,walkKm:walkKm,driveKm:driveKm,driveLegs:driveLegs,transitLegs:transitLegs,spots:spots};
+}
+
+/* ================= 렌더 ================= */
+var todayStr=(function(){
+  var d=new Date();
+  return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
+})();
+
+function itemHTML(item,dateKey,kind,computedWalk,an){
+  var e=effective(item);
+  if(!kind) kind=kindOf(item,e.title);
+  if(!an) an={nav:true,dest:null};
+  var t=an.dest?an.dest:navTargets(item);
+  var mode=(edits[item.id]&&edits[item.id].walk!=null)
+    ? (edits[item.id].walk?"w":"d")
+    : (computedWalk!=null?computedWalk:(item.mode==="w"?"w":"d"));
+  var cls="item kind-"+kind.k
+    +(computedWalk==="w"?" walknode":"")
+    +(item.type==="hotel"?" hotel":"")
+    +(item.type==="flight"?" flight":"")
+    +(done[item.id]?" done":"");
+
+  var h='<div class="'+cls+'">'
+   +'<div class="row1">'
+   +'<span class="time">'+esc(e.time)+'</span>'
+   +'<span class="t-title">'+(kind.ic?kind.ic+" ":"")+esc(e.title)
+   +(item.book?'<span class="needbook">예약필수</span>':"")
+   +'</span>'
+   +'<button class="chk" data-chk="'+item.id+'">✓</button>'
+   +'</div>';
+  if(item.desc) h+='<div class="desc">'+esc(item.desc)+'</div>';
+  if(e.memo) h+='<div class="memo">📝 '+esc(e.memo)+'</div>';
+  if(an.note) h+='<div class="parkinfo">🚙 '+esc(an.note)+'</div>';
+  if(item.lat!=null&&!(e.dest!==null&&e.dest!=="")) h+='<div class="coordtag">📍 좌표 인식됨 · 오프라인 네비 OK</div>';
+
+  var btns="";
+  var destAttr=(an.dest&&an.dest.q)?(' data-dest="'+esc(an.dest.q)+'"'):"";
+  if(an.nav&&t){
+    /* 1번: 차량(🚗)/도보(🚶) 턴바이턴 · 2번: 대중교통(도보 포함) */
+    var p=(mode==="w")?"w":"d";
+    btns+='<button class="nav-btn nav-g'+(p==="w"?" walk":"")+'" data-navg="'+item.id+'" data-mode="'+p+'"'+destAttr+'>'+(p==="w"?"🚶":"🚗")+' 구글 네비</button>';
+    btns+='<button class="nav-btn nav-t" data-navg="'+item.id+'" data-mode="t"'+destAttr+'>🚇 대중교통</button>';
+  }
+  if(!an.nav&&an.nearbyLL){
+    btns+='<button class="nav-btn nav-t" data-nearbyll="'+esc(an.nearbyLL)+'">🍴 주변 식당 찾기</button>';
+  }
+  if(an.nav&&item.type==="spot"){
+    btns+='<button class="info-btn" data-info="'+item.id+'">ℹ️</button>';
+    if(t) btns+='<button class="park-btn" data-park="'+item.id+'">🅿</button>';
+  }
+  btns+='<button class="edit-btn" data-edit="'+item.id+'">✏️</button>';
+  btns+='<button class="del-btn" data-del="'+item.id+'">🗑</button>';
+  h+='<div class="btnrow">'+btns+'</div></div>';
+  return h;
+}
+
+function emptyHTML(){
+  return '<div class="empty">'
+   +'<h2>📄 PDF 일정표를 업로드하세요</h2>'
+   +'상단의 <code>📄 PDF</code> 버튼을 눌러 일정표 PDF를 선택하면 자동으로 등록됩니다.<br><br>'
+   +'<b>일정표 작성 규칙</b><br>'
+   +'· 날짜 줄: <code>10/9 금</code> 처럼 시작<br>'
+   +'· 일정 줄: <code>시간 장소명</code><br>'
+   +'· 장소명 뒤 괄호에 <b>구글지도 좌표</b>를 넣으면 오프라인 네비까지 정확하게 동작합니다<br>'
+   +'<div class="ex">10/9 금 9:00 렌트카 픽업\n10:30 Seilbahn Rüdesheim (49.979563, 7.921163)\n  라인강 와인마을. 곤돌라 전망대\n13:00 Loreleyblick Maria Ruh (50.134690, 7.722215)\n17:30 Cochem 지역 호텔 체크인</div>'
+   +'· 좌표는 구글지도에서 장소를 <b>길게 누르면</b> 하단에 표시 → 복사<br>'
+   +'· 같은 이름의 PDF를 다시 올리면 해당 여행이 <b>업데이트</b>됩니다<br>'
+   +'· PDF 파일 자체는 저장되지 않습니다 (일정 텍스트만 추출 후 즉시 폐기)'
+   +'</div>';
+}
+
+function render(){
+  var trip=currentTrip();
+  if(trip) currentId=trip.id;
+  var main=document.getElementById("main");
+  var tabs=document.getElementById("tabs");
+  var sel=document.getElementById("tripSel");
+
+  sel.innerHTML=trips.length
+    ? trips.map(function(t){
+        return '<option value="'+esc(t.id)+'"'+(t.id===currentId?" selected":"")+'>'+esc(t.name)+'</option>';
+      }).join("")
+    : '<option>여행 없음 — PDF를 업로드하세요</option>';
+
+  if(!trip){
+    tabs.innerHTML="";
+    main.innerHTML=emptyHTML();
+    return;
+  }
+
+  var mh="",th="";
+  /* 여행에 렌트카 언급이 있으면 픽업 전까지는 '차 없음'으로 시작 */
+  var tripHasCar=trip.days.some(function(d){
+    return d.items.some(function(it){ return carEvent(effective(it).title)!==0; });
+  });
+  var carState={has:!tripHasCar};
+  var cityMap=buildCityMap(trip); /* PDF 흐름 분석: 렌트카 영업소 도시 판정 */
+  trip.days.forEach(function(day){
+    var isToday=day.date===todayStr;
+    var rt=buildDayRoute(day,carState,cityMap);
+    var fkey=trip.id+"|"+day.date;
+    var isFold=!!foldMap[fkey];
+    var chips=(rt.driveLegs?("🚗 "+rt.driveLegs+" · "):"")
+      +(rt.transitLegs?("🚇 "+rt.transitLegs+" · "):"")
+      +(rt.walkKm>=0.05?("🚶 "+rt.walkKm.toFixed(1)+"km · "):"")
+      +"📍 "+rt.spots+"곳";
+    th+='<button class="tab'+(isToday?" today":"")+'" data-jump="day_'+esc(day.date)+'">'+esc(day.label)+'</button>';
+    mh+='<section class="day'+(isFold?" folded":"")+'" id="day_'+esc(day.date)+'">'
+      +'<div class="dayhead'+(isToday?" is-today":"")+'" data-fold="'+esc(fkey)+'">'
+      +'<span class="d">'+esc(day.label)+'</span>'
+      +(isToday?'<span class="todaybadge">오늘</span>':"")
+      +'<span class="chips">'+chips+'</span>'
+      +'<span class="foldarrow">▾</span>'
+      +'</div><div class="items">';
+    rt.rows.forEach(function(r){
+      if(r.leg==="walk") mh+='<div class="leg walk">🚶 '+r.m+'m · 약 '+r.min+'분</div>';
+      else if(r.leg==="drive") mh+='<div class="leg drive">🚗 차량 이동 · 약 '+r.km+'km</div>';
+      else if(r.leg==="transit") mh+='<div class="leg transit">🚇 대중교통 이동 · 약 '+r.km+'km</div>';
+      else if(r.leg==="far") mh+='<div class="leg fartravel">✈️ 장거리 이동</div>';
+      else if(r.leg==="back") mh+='<div class="leg back">↩ 🅿 주차장 복귀 · 도보 약 '+r.min+'분</div>';
+      else mh+=itemHTML(r.item,day.date,r.kind,r.computedWalk,r.an);
+    });
+    mh+='</div>'
+      +'<button class="addrow" data-add="'+esc(day.date)+'">＋ 일정 추가 ('+esc(day.label)+')</button>'
+      +'</section>';
+  });
+  tabs.innerHTML=th;
+  main.innerHTML=mh;
+}
+
+/* ================= PDF 파싱 ================= */
+var PDFJS_URL="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+var PDFJS_WORKER="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+function status(msg){ document.getElementById("parseStatus").textContent=msg||""; }
+
+function loadPdfJs(){
+  return new Promise(function(res,rej){
+    if(window.pdfjsLib) return res();
+    var s=document.createElement("script");
+    s.src=PDFJS_URL;
+    s.onload=function(){
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER;
+      res();
+    };
+    s.onerror=function(){ rej(new Error("pdf.js 로드 실패 (인터넷 연결 필요)")); };
+    document.head.appendChild(s);
+  });
+}
+
+function pageToLines(textContent){
+  var rows={};
+  textContent.items.forEach(function(it){
+    if(!it.str) return;
+    var y=Math.round(it.transform[5]/3)*3;
+    if(!rows[y]) rows[y]=[];
+    rows[y].push({x:it.transform[4],s:it.str});
+  });
+  return Object.keys(rows)
+    .sort(function(a,b){ return b-a; })
+    .map(function(y){
+      return rows[y].sort(function(a,b){ return a.x-b.x; })
+        .map(function(r){ return r.s; }).join(" ");
+    });
+}
+
+function inferDate(mo,d){
+  var now=new Date();
+  var y=now.getFullYear();
+  var target=new Date(y,mo-1,d);
+  var cmp=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1);
+  if(target<cmp) y++;
+  return y+"-"+pad2(mo)+"-"+pad2(d);
+}
+
+function classify(title){
+  if(/체크\s*아웃/.test(title)&&title.length<30) return {type:"info"};
+  if(/체크\s*인/.test(title)) return {type:"hotel"};
+  if(!/주차|셔틀|하차|출발|도착/.test(title)
+     &&(/호텔|숙소/.test(title)||/(hotel|resort|\binn\b)/i.test(title))) return {type:"hotel"};
+  if((/공항|비행|항공|터미널|terminal/i.test(title)&&/출발|도착/.test(title))
+     ||(title.length<=12&&/(출발|도착)\s*$/.test(title))) return {type:"flight"};
+  if(/점심\s*(먹고|후)|이동|출발준비/.test(title)&&title.length<25) return {type:"info"};
+  return {type:"spot",mode:"d"};
+}
+
+/* 텍스트에서 (위도, 경도) 추출: 소수점 3자리 이상만 좌표로 인정 */
+function pullCoord(text){
+  var re=/\(?\s*(-?\d{1,3}\.\d{3,})\s*[,，]\s*(-?\d{1,3}\.\d{3,})\s*\)?/;
+  var m=re.exec(text);
+  if(!m) return null;
+  var lat=parseFloat(m[1]), lng=parseFloat(m[2]);
+  if(Math.abs(lat)>90||Math.abs(lng)>180) return null;
+  var atStart=text.slice(0,m.index).replace(/[\s(]/g,"").length===0;
+  var cleaned=(text.slice(0,m.index)+" "+text.slice(m.index+m[0].length))
+    .replace(/\(\s*\)/g," ").replace(/\s+/g," ").trim()
+    .replace(/^[·\-–:،,)]+\s*/,"").replace(/[·\-–:،,(]+\s*$/,"").trim();
+  return {lat:lat,lng:lng,text:cleaned,atStart:atStart};
+}
+
+function parseItinerary(lines,tripId){
+  var days=[], curDay=null, curItem=null, seq=0, nameLine=null, dayHasTimed=false;
+
+  function makeItem(time,rawTitle){
+    var t=rawTitle.trim().replace(/^[·\-–:،,]+\s*/,"");
+    var coord=pullCoord(t);
+    if(coord) t=coord.text;
+    var base={id:tripId+"_"+(seq++), time:time, title:t||"(제목 없음)", desc:""};
+    var c=classify(t);
+    for(var key in c) base[key]=c[key];
+    if(coord){ base.lat=coord.lat; base.lng=coord.lng; }
+    if(/예약\s*필수/.test(t)) base.book=true;
+    if(base.type==="spot"||base.type==="hotel") base.q=base.title;
+    return base;
+  }
+
+  /* 직전 항목에 설명으로 붙였던 마지막 줄을 좌표와 함께 새 항목으로 승격 */
+  function promoteLastChunk(c2,extraDesc){
+    var promoted=curItem._lc;
+    if(curItem.desc===promoted){ delete curItem.desc; }
+    else if(curItem.desc&&curItem.desc.slice(-(promoted.length+1))===" "+promoted){
+      curItem.desc=curItem.desc.slice(0,-(promoted.length+1));
+    }
+    delete curItem._lc;
+    curItem=makeItem("—",promoted);
+    curItem.lat=c2.lat; curItem.lng=c2.lng;
+    if(extraDesc) curItem.desc=extraDesc;
+    curDay.items.push(curItem);
+  }
+
+  /* 전처리: 줄 중간에 낀 날짜("... M terminal 8/22 토 19:00 ...")를 분리 */
+  var segs=[];
+  lines.forEach(function(raw){
+    var line=raw.replace(/\s+/g," ").trim();
+    if(!line) return;
+    var dre=/\d{1,2}\s*\/\s*\d{1,2}\s*[월화수목금토일](?![가-힣])/g, cuts=[], mm;
+    while((mm=dre.exec(line))!==null){ if(mm.index>0) cuts.push(mm.index); }
+    var prev=0;
+    cuts.forEach(function(ci){ var s=line.slice(prev,ci).trim(); if(s) segs.push(s); prev=ci; });
+    var tail=line.slice(prev).trim(); if(tail) segs.push(tail);
+  });
+
+  segs.forEach(function(line){
+
+    /* 날짜 줄: "10/8 목 ..." — 요일이 있거나, 빈 줄이거나, 바로 시간이 이어져야 날짜로 인정
+       (메모 속 "8/7 575,830 자동결재" 같은 날짜 표기를 새 날로 오인하지 않도록) */
+    var dm=/^(\d{1,2})\s*\/\s*(\d{1,2})\s*([월화수목금토일])?\s*(.*)$/.exec(line);
+    if(dm&&+dm[1]>=1&&+dm[1]<=12&&+dm[2]>=1&&+dm[2]<=31){
+      var rest=(dm[4]||"").trim();
+      var looksDate=!!dm[3]||rest===""||/^\d{1,2}:\d{2}(?!\d)/.test(rest);
+      if(looksDate){
+        curDay={date:inferDate(+dm[1],+dm[2]),
+                label:dm[1]+"/"+dm[2]+(dm[3]?" "+dm[3]:""),
+                items:[]};
+        days.push(curDay); curItem=null; dayHasTimed=false;
+        line=rest;
+        if(!line) return;
+      }
+    }
+    if(!curDay){ if(!nameLine) nameLine=line; return; }
+
+    /* 시간 토큰(HH:MM) 탐색 — 좌표 소수부와의 혼동 방지를 위해 좌표 숫자를 먼저 마스킹 */
+    var masked=line.replace(/-?\d{1,3}\.\d{3,}/g,function(s){
+      var out=""; for(var z=0;z<s.length;z++) out+="#"; return out;
+    });
+    var re=/(\d{1,2}):(\d{2})(?!\d)/g, tok=[], m;
+    while((m=re.exec(masked))!==null){
+      if(+m[1]<=23&&+m[2]<=59) tok.push({i:m.index,len:m[0].length,h:+m[1],mm:m[2]});
+    }
+    if(tok.length===0){
+      var c2=pullCoord(line);
+      /* 1) 좌표만 단독인 줄 */
+      if(c2&&c2.text.length<=2){
+        if(curItem&&curItem.lat==null){ curItem.lat=c2.lat; curItem.lng=c2.lng; return; }
+        if(curItem&&curItem._lc){ promoteLastChunk(c2,""); }
+        return;
+      }
+      /* 2) 좌표가 줄 앞에 오는 경우 "(좌표) 체크인" → 직전 항목의 좌표+설명으로 */
+      if(c2&&c2.atStart){
+        if(curItem&&curItem.lat==null){
+          curItem.lat=c2.lat; curItem.lng=c2.lng;
+          if(c2.text){ curItem.desc=(curItem.desc?curItem.desc+" ":"")+c2.text; curItem._lc=c2.text; }
+          return;
+        }
+        if(curItem&&curItem._lc){ promoteLastChunk(c2,c2.text); return; }
+      }
+      /* 3) 짧은 꼬리말 + 좌표 줄 ("마을 구경(좌표)") → 직전 좌표 없는 항목에 흡수 */
+      if(c2&&curItem&&curItem.lat==null&&c2.text.length<=8){
+        curItem.lat=c2.lat; curItem.lng=c2.lng;
+        if(c2.text){ curItem.desc=(curItem.desc?curItem.desc+" ":"")+c2.text; curItem._lc=c2.text; }
+        return;
+      }
+      /* 4) 좌표가 포함된 텍스트 줄 → 새 항목 (시간 없는 관광지 나열 대응) */
+      if(c2){
+        curItem=makeItem("—",line);
+        curDay.items.push(curItem);
+        return;
+      }
+      /* 4) 일반 텍스트 줄 */
+      if(dayHasTimed&&curItem){
+        curItem.desc=(curItem.desc?curItem.desc+" ":"")+line;
+        curItem._lc=line;
+      }else{
+        curItem=makeItem("—",line);
+        curDay.items.push(curItem);
+      }
+      return;
+    }
+    dayHasTimed=true;
+    var pre=line.slice(0,tok[0].i).trim();
+    if(pre&&curItem) curItem.desc=(curItem.desc?curItem.desc+" ":"")+pre;
+    for(var k=0;k<tok.length;k++){
+      var start=tok[k].i+tok[k].len;
+      var end=(k+1<tok.length)?tok[k+1].i:line.length;
+      curItem=makeItem(pad2(tok[k].h)+":"+tok[k].mm, line.slice(start,end));
+      curDay.items.push(curItem);
+    }
+  });
+
+  days.forEach(function(d){ d.items.forEach(function(it){
+    delete it._lc;
+    if(!it.desc) delete it.desc;
+  }); });
+  return {days:days, nameLine:nameLine};
+}
+
+function cleanupTripData(tripId){
+  Object.keys(edits).forEach(function(k){ if(k.indexOf(tripId+"_")===0) delete edits[k]; });
+  Object.keys(done).forEach(function(k){ if(k.indexOf(tripId+"_")===0) delete done[k]; });
+  save(LS_EDIT,edits); save(LS_DONE,done);
+}
+
+function handlePdf(file){
+  status("PDF 읽는 중…");
+  loadPdfJs().then(function(){
+    return file.arrayBuffer();
+  }).then(function(buf){
+    return window.pdfjsLib.getDocument({data:buf}).promise;
+  }).then(function(pdf){
+    var pages=[];
+    for(var i=1;i<=pdf.numPages;i++) pages.push(pdf.getPage(i));
+    return Promise.all(pages).then(function(pgs){
+      return Promise.all(pgs.map(function(p){ return p.getTextContent(); }));
+    });
+  }).then(function(contents){
+    var lines=[];
+    contents.forEach(function(tc){ lines=lines.concat(pageToLines(tc)); });
+    var tripId="u_"+Date.now();
+    var parsed=parseItinerary(lines,tripId);
+    if(parsed.days.length===0){
+      status("⚠ 날짜(예: 10/8)를 찾지 못했습니다. PDF 형식을 확인해주세요.");
+      return;
+    }
+    var name=(parsed.nameLine||file.name.replace(/\.pdf$/i,"")).slice(0,40);
+
+    /* 같은 이름 여행 → 업데이트(덮어쓰기) */
+    var existing=trips.find(function(t){ return t.name===name; });
+    if(existing){
+      if(!confirm("\""+name+"\" 여행이 이미 있습니다.\n새 PDF 내용으로 업데이트할까요?\n(체크·메모는 초기화됩니다)")){
+        status("업데이트 취소됨"); return;
+      }
+      cleanupTripData(existing.id);
+      trips=trips.filter(function(t){ return t.id!==existing.id; });
+      deletedTrips[existing.id]=Date.now(); save(LS_DEL,deletedTrips); /* 다른 기기에서 부활 방지 */
+    }
+
+    var count=parsed.days.reduce(function(a,d){ return a+d.items.length; },0);
+    var coordCount=parsed.days.reduce(function(a,d){
+      return a+d.items.filter(function(it){ return it.lat!=null; }).length; },0);
+    trips.push({id:tripId,name:name,days:parsed.days,updatedAt:Date.now()});
+    currentId=tripId;
+    save(LS_TRIPS,trips); save(LS_CUR,currentId);
+    status((existing?"🔄 업데이트: ":"✅ 등록: ")+parsed.days.length+"일 · "+count+"개 일정 · 좌표 "+coordCount+"개 인식");
+    render(); /* 화면 갱신 우선 */
+    window.scrollTo({top:0});
+    try{ syncPush(); }catch(e){}
+  }).catch(function(err){
+    status("⚠ 오류: "+err.message);
+  });
+}
+
+document.getElementById("pdfBtn").addEventListener("click",function(){
+  document.getElementById("pdfInput").click();
+});
+document.getElementById("pdfInput").addEventListener("change",function(ev){
+  var f=ev.target.files[0];
+  if(f) handlePdf(f);
+  ev.target.value=""; /* 파일 참조 즉시 해제 — PDF 원본은 저장되지 않음 */
+});
+
+/* ===== 드래그&드롭 업로드 (PC) ===== */
+(function(){
+  var zone=document.getElementById("dropZone");
+  var depth=0;
+  document.addEventListener("dragenter",function(e){
+    e.preventDefault();
+    depth++;
+    zone.classList.add("show");
+  });
+  document.addEventListener("dragover",function(e){ e.preventDefault(); });
+  document.addEventListener("dragleave",function(e){
+    e.preventDefault();
+    depth--;
+    if(depth<=0){ depth=0; zone.classList.remove("show"); }
+  });
+  document.addEventListener("drop",function(e){
+    e.preventDefault();
+    depth=0;
+    zone.classList.remove("show");
+    var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(!f) return;
+    if(f.type!=="application/pdf"&&!/\.pdf$/i.test(f.name)){
+      status("⚠ PDF 파일만 업로드할 수 있습니다");
+      return;
+    }
+    handlePdf(f);
+  });
+})();
+
+/* ===== 여행 선택 / 삭제 ===== */
+document.getElementById("tripSel").addEventListener("change",function(ev){
+  currentId=ev.target.value;
+  save(LS_CUR,currentId);
+  status("");
+  render();
+  window.scrollTo({top:0});
+});
+document.getElementById("delTripBtn").addEventListener("click",function(){
+  var trip=currentTrip();
+  if(!trip){ status("삭제할 여행이 없습니다"); return; }
+  if(!confirm("\""+trip.name+"\" 여행을 삭제할까요?")) return;
+  cleanupTripData(trip.id);
+  trips=trips.filter(function(t){ return t.id!==trip.id; });
+  deletedTrips[trip.id]=Date.now(); save(LS_DEL,deletedTrips);
+  currentId=trips.length?trips[0].id:null;
+  save(LS_TRIPS,trips); save(LS_CUR,currentId);
+  syncPush();
+  status("삭제되었습니다");
+  render();
+});
+
+/* ================= 관광지 설명 v8: 점수제 매칭 + Wikidata + 자동번역 ================= */
+var infoOverlay=document.getElementById("infoOverlay");
+document.getElementById("infoClose").addEventListener("click",function(){
+  infoOverlay.classList.remove("show");
+});
+infoOverlay.addEventListener("click",function(ev){
+  if(ev.target===infoOverlay) infoOverlay.classList.remove("show");
+});
+
+function cleanWikiQuery(title){
+  return title
+    .replace(/예약\s*(필수|완료)|티켓/g," ")
+    .replace(/외관만?\s*관람|관람|산책|점심|저녁|투어|방문|체크인|체크아웃|하산|생략가능/g," ")
+    .replace(/여기에|주차하고|주차한?후|걸어서|이동|도보|셔틀|리프트|하이킹|구경|시내\s*관광|마을\s*관광|관광/g," ")
+    .replace(/마지막\s*입장\s*시간?|개장|시간\s*남으면|\d+분|\d+시간?|1순위|2순위/g," ")
+    .replace(/[·:：,]/g," ")
+    .replace(/\s+/g," ").trim();
+}
+function latinName(title){
+  var m=/\(([A-Za-z][A-Za-z0-9 .,'&\/\-]{2,})\)/.exec(title);
+  return m?m[1].trim():null;
+}
+function stripKoParens(t){
+  return t.replace(/\([^)]*[가-힣][^)]*\)/g," ").replace(/\s+/g," ").trim();
+}
+
+/* 토큰 양방향 부분일치 점수 (0~3) */
+function tokensOf(s){
+  return String(s).toLowerCase().split(/[^a-z0-9가-힣]+/)
+    .filter(function(w){ return /[가-힣]/.test(w)?w.length>=2:w.length>=3; });
+}
+function relScore(query,title){
+  var qs=tokensOf(query), ts=tokensOf(title);
+  if(!qs.length||!ts.length) return 0;
+  var hit=0;
+  qs.forEach(function(q){
+    for(var i=0;i<ts.length;i++){
+      if(ts[i].indexOf(q)>=0||q.indexOf(ts[i])>=0){ hit++; return; }
+    }
+  });
+  return 3*hit/qs.length;
+}
+
+/* 위키 문서가 없는 유형은 템플릿 안내 (매칭 실패 시 최후 폴백) */
+function typeTemplate(title){
+  if(/주차|parkplatz|parking|parkeer|park\s*and\s*ride/i.test(title)){
+    return {title:title,extract:"🅿 주차장·주차 포인트입니다.\n\n이런 장소는 위키백과 문서가 없는 유형이에요. 요금과 운영시간은 현장 표지판을 확인하시고, 만차일 땐 카드의 🅿 버튼으로 주변 다른 주차장을 바로 찾을 수 있습니다.",srcNote:"유형 안내",img:null,url:null};
+  }
+  if(/전망대|뷰\s*포인트|전망\s*포인트|viewpoint|lookout|아웃룩/i.test(title)){
+    return {title:title,extract:"🔭 전망 포인트입니다.\n\n독립된 위키백과 문서가 없는 소규모 전망 지점이에요. 보통 도로변 주차 후 짧게 걸어 들어가는 구조이며, 일출·일몰 시간대가 가장 좋습니다.",srcNote:"유형 안내",img:null,url:null};
+  }
+  return null;
+}
+
+function fetchJson(url){
+  return fetch(url).then(function(r){ if(!r.ok) throw new Error("요청 실패"); return r.json(); });
+}
+function haversineKm(a,b,c,d){
+  var R=6371,rad=Math.PI/180;
+  var x=(c-a)*rad, y=(d-b)*rad;
+  var h=Math.sin(x/2)*Math.sin(x/2)+Math.cos(a*rad)*Math.cos(c*rad)*Math.sin(y/2)*Math.sin(y/2);
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+function wikiSearchList(lang,q,n){
+  return fetchJson("https://"+lang+".wikipedia.org/w/rest.php/v1/search/page?q="+encodeURIComponent(q)+"&limit="+n)
+    .then(function(j){ return (j.pages||[]).map(function(p){ return p.title||p.key; }); });
+}
+function wikiCoordsBatch(lang,titles){
+  var u="https://"+lang+".wikipedia.org/w/api.php?action=query&prop=coordinates&format=json&origin=*"
+    +"&titles="+encodeURIComponent(titles.join("|"));
+  return fetchJson(u).then(function(j){
+    var out={}, pages=(j.query&&j.query.pages)||{};
+    Object.keys(pages).forEach(function(k){
+      var p=pages[k];
+      if(p.title&&p.coordinates&&p.coordinates[0]) out[p.title]={lat:p.coordinates[0].lat,lng:p.coordinates[0].lon};
+    });
+    return out;
+  });
+}
+function geoList(lang,lat,lng,radius,n){
+  var u="https://"+lang+".wikipedia.org/w/api.php?action=query&list=geosearch"
+    +"&gscoord="+lat+"%7C"+lng+"&gsradius="+radius+"&gslimit="+n+"&format=json&origin=*";
+  return fetchJson(u).then(function(j){
+    return ((j.query&&j.query.geosearch)||[]).map(function(r){ return {title:r.title,distKm:r.dist/1000}; });
+  });
+}
+function wikiSummary(lang,title){
+  return fetchJson("https://"+lang+".wikipedia.org/api/rest_v1/page/summary/"+encodeURIComponent(title))
+    .then(function(s){
+      if(!s.extract||s.extract.length<30) throw new Error("내용 부족");
+      return {
+        title:s.title,
+        extract:s.extract.length>700?s.extract.slice(0,700)+"…":s.extract,
+        img:(s.thumbnail&&s.thumbnail.source)||null,
+        url:(s.content_urls&&s.content_urls.desktop&&s.content_urls.desktop.page)||null,
+        lang:lang
+      };
+    });
+}
+function koTitleForEn(enTitle){
+  var u="https://en.wikipedia.org/w/api.php?action=query&prop=langlinks&lllang=ko&format=json&origin=*"
+    +"&titles="+encodeURIComponent(enTitle);
+  return fetchJson(u).then(function(j){
+    var pages=j.query&&j.query.pages;
+    if(!pages) throw new Error("없음");
+    var k=Object.keys(pages)[0];
+    var ll=pages[k]&&pages[k].langlinks;
+    if(!ll||!ll.length||!ll[0]["*"]) throw new Error("한국어판 없음");
+    return ll[0]["*"];
+  });
+}
+function translateKo(text){
+  var u="https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q="
+    +encodeURIComponent(text);
+  return fetchJson(u).then(function(j){
+    if(!j||!j[0]) throw new Error("번역 실패");
+    var out=j[0].map(function(seg){ return seg&&seg[0]?seg[0]:""; }).join("");
+    if(out.length<20) throw new Error("번역 실패");
+    return out;
+  });
+}
+/* 영어 요약 한글화: 한국어판이 충실하면(200자+) 그걸, 토막글이면 영어 원문을 번역 */
+function koreanize(enSum,enTitle){
+  return koTitleForEn(enTitle)
+    .then(function(koTitle){ return wikiSummary("ko",koTitle); })
+    .then(function(koSum){
+      if(koSum.extract.length>=200){ koSum.srcNote="위키백과 (한국어)"; return koSum; }
+      throw new Error("토막글");
+    })
+    .catch(function(){
+      return translateKo(enSum.extract).then(function(korText){
+        enSum.extract=korText;
+        enSum.srcNote="위키백과 (영어) · 자동 번역";
+        return enSum;
+      }).catch(function(){
+        enSum.srcNote="위키백과 (영어)";
+        return enSum;
+      });
+    });
+}
+
+/* Wikidata: 좌표 반경 300m 내 개체 → 위키 문서 or 라벨/설명 */
+function wikidataAround(lat,lng,query){
+  var sparql='SELECT ?item ?itemLabel ?itemDescription ?ko ?en WHERE {'
+    +' SERVICE wikibase:around { ?item wdt:P625 ?loc. bd:serviceParam wikibase:center "Point('+lng+' '+lat+')"^^geo:wktLiteral; wikibase:radius "0.3". }'
+    +' OPTIONAL { ?ko schema:about ?item; schema:isPartOf <https://ko.wikipedia.org/>. }'
+    +' OPTIONAL { ?en schema:about ?item; schema:isPartOf <https://en.wikipedia.org/>. }'
+    +' SERVICE wikibase:label { bd:serviceParam wikibase:language "ko,en". } } LIMIT 6';
+  return fetchJson("https://query.wikidata.org/sparql?format=json&query="+encodeURIComponent(sparql))
+    .then(function(j){
+      var rows=(j.results&&j.results.bindings)||[];
+      if(!rows.length) throw new Error("없음");
+      /* 관련성 높은 항목 우선, 없으면 위키 문서가 연결된 첫 항목 */
+      var best=null,bestS=-1;
+      rows.forEach(function(r){
+        var label=r.itemLabel?r.itemLabel.value:"";
+        var s=relScore(query,label)+(r.ko||r.en?1:0);
+        if(s>bestS){ bestS=s; best=r; }
+      });
+      if(!best) throw new Error("없음");
+      return best;
+    });
+}
+
+/* 후보 수집 → 거리 검증 → 점수제 선택 */
+function pickBest(item,query,enQuery){
+  var hasC=item.lat!=null;
+  var cands=[];
+  function pushc(lang,title,distKm){
+    for(var i=0;i<cands.length;i++){
+      if(cands[i].lang===lang&&cands[i].title===title){
+        if(distKm!=null&&cands[i].distKm==null) cands[i].distKm=distKm;
+        return;
+      }
+    }
+    cands.push({lang:lang,title:title,distKm:distKm!=null?distKm:null});
+  }
+  var jobs=[
+    wikiSearchList("en",enQuery,5).then(function(ts){ ts.forEach(function(t){ pushc("en",t); }); }).catch(function(){}),
+    wikiSearchList("ko",query,5).then(function(ts){ ts.forEach(function(t){ pushc("ko",t); }); }).catch(function(){})
+  ];
+  if(hasC){
+    jobs.push(geoList("en",item.lat,item.lng,600,10).then(function(rs){ rs.forEach(function(r){ pushc("en",r.title,r.distKm); }); }).catch(function(){}));
+    jobs.push(geoList("ko",item.lat,item.lng,600,10).then(function(rs){ rs.forEach(function(r){ pushc("ko",r.title,r.distKm); }); }).catch(function(){}));
+  }
+  return Promise.all(jobs).then(function(){
+    if(!hasC) return null;
+    /* 이름 검색으로 나온 후보의 실제 좌표를 조회해 거리 검증 */
+    var fills=["en","ko"].map(function(lang){
+      var need=cands.filter(function(c){ return c.lang===lang&&c.distKm==null; }).map(function(c){ return c.title; }).slice(0,10);
+      if(!need.length) return Promise.resolve();
+      return wikiCoordsBatch(lang,need).then(function(map){
+        cands.forEach(function(c){
+          if(c.lang===lang&&c.distKm==null&&map[c.title]){
+            c.distKm=haversineKm(item.lat,item.lng,map[c.title].lat,map[c.title].lng);
+          }
+        });
+      }).catch(function(){});
+    });
+    return Promise.all(fills);
+  }).then(function(){
+    var best=null,bestS=0;
+    cands.forEach(function(c){
+      var rel=Math.max(relScore(query,c.title),relScore(enQuery,c.title));
+      var s;
+      if(hasC){
+        if(c.distKm==null){
+          if(rel<2) return;           /* 좌표 검증 불가 + 관련성 낮음 → 탈락 */
+          s=rel*0.8;
+        }else if(c.distKm>5){
+          return;                      /* 5km 밖 → 엉뚱한 문서, 탈락 */
+        }else{
+          s=rel+2.2*(1-Math.min(c.distKm,5)/5);
+        }
+      }else{
+        if(rel<1.5) return;            /* 좌표 없으면 관련성 필수 */
+        s=rel;
+      }
+      if(c.lang==="en") s+=0.25;       /* 영어 문서 품질 우대 (이후 한글화) */
+      if(s>bestS){ bestS=s; best=c; }
+    });
+    if(!best||bestS<1.2) throw new Error("매칭 실패");
+    return best;
+  });
+}
+
+function lookupInfo(item,query,enQuery){
+  return pickBest(item,query,enQuery)
+    .then(function(best){
+      return wikiSummary(best.lang,best.title).then(function(s){
+        if(best.lang==="en") return koreanize(s,best.title);
+        s.srcNote="위키백과 (한국어)";
+        return s;
+      });
+    })
+    .catch(function(){
+      if(item.lat==null) throw new Error("notfound");
+      /* Wikidata 폴백: 좌표 300m 내 개체 */
+      return wikidataAround(item.lat,item.lng,query).then(function(r){
+        if(r.ko&&r.ko.value){
+          var koT=decodeURIComponent(r.ko.value.split("/wiki/")[1]||"").replace(/_/g," ");
+          return wikiSummary("ko",koT).then(function(s){ s.srcNote="위키백과 (한국어)"; return s; });
+        }
+        if(r.en&&r.en.value){
+          var enT=decodeURIComponent(r.en.value.split("/wiki/")[1]||"").replace(/_/g," ");
+          return wikiSummary("en",enT).then(function(s){ return koreanize(s,enT); });
+        }
+        var label=r.itemLabel?r.itemLabel.value:"";
+        var desc=r.itemDescription?r.itemDescription.value:"";
+        if(!label) throw new Error("notfound");
+        return {title:label,extract:label+(desc?" — "+desc:"")+"\n\n(위키백과 문서는 없는 장소입니다)",img:null,url:null,srcNote:"위키데이터"};
+      });
+    });
+}
+
+var AI_WORKER="https://travel-ai.kyunghoyou.workers.dev"; /* Worker 배포 후 주소가 다르면 여기만 수정 */
+var LS_AI="wtrip_ai_v9";
+var aiCache=loadObj(LS_AI,{});
+var aiCurrent=null; /* {item, wikiExtract, key} */
+
+function resetAiUi(){
+  var btn=document.getElementById("aiSumBtn");
+  var box=document.getElementById("aiBox");
+  box.classList.remove("show"); box.innerHTML="";
+  btn.style.display=AI_WORKER?"block":"none";
+  btn.disabled=false; btn.textContent="🤖 AI 여행 요약 보기";
+}
+function renderAi(text,model){
+  var box=document.getElementById("aiBox");
+  box.innerHTML="";
+  var t=document.createElement("div"); t.textContent=text;
+  var s=document.createElement("div"); s.className="ai-src";
+  s.textContent="AI 요약 ("+(model||"")+") · 요금·운영시간은 공식 사이트에서 재확인하세요";
+  box.appendChild(t); box.appendChild(s);
+  box.classList.add("show");
+  document.getElementById("aiSumBtn").style.display="none";
+}
+document.getElementById("aiSumBtn").addEventListener("click",function(){
+  if(!aiCurrent||!AI_WORKER) return;
+  var cached=aiCache[aiCurrent.key];
+  if(cached){ renderAi(cached.text,cached.model); return; }
+  var btn=this;
+  btn.disabled=true; btn.textContent="🤖 AI가 요약하는 중…";
+  var it=aiCurrent.item;
+  fetch(AI_WORKER,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      name:effective(it).title,
+      lat:it.lat!=null?it.lat:null,
+      lng:it.lat!=null?it.lng:null,
+      wiki:aiCurrent.wikiExtract||""
+    })
+  }).then(function(r){ return r.json(); }).then(function(j){
+    if(!j.summary) throw new Error(j.error||"요약 실패");
+    aiCache[aiCurrent.key]={text:j.summary,model:j.model};
+    var ks=Object.keys(aiCache);
+    if(ks.length>60) delete aiCache[ks[0]];
+    save(LS_AI,aiCache);
+    renderAi(j.summary,j.model);
+  }).catch(function(e){
+    btn.disabled=false;
+    btn.textContent="🤖 실패 — 다시 시도 ("+e.message+")";
+  });
+});
+
+function showInfo(item){
+  var e=effective(item);
+  var query=cleanWikiQuery(e.title);
+  var enQuery=latinName(e.title)||stripKoParens(query);
+  var bEl=document.getElementById("infoBody"),
+      iEl=document.getElementById("infoImg"),
+      sEl=document.getElementById("infoSrc");
+  document.getElementById("infoTitle").textContent=e.title;
+  iEl.style.display="none"; iEl.src="";
+  sEl.innerHTML="";
+  infoOverlay.classList.add("show");
+
+  var aiKey="ai|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
+  aiCurrent={item:item,wikiExtract:"",key:aiKey};
+  resetAiUi();
+
+  function renderInfo(d){
+    if(aiCurrent){ aiCurrent.wikiExtract=(d.extract||"").slice(0,1500); }
+    bEl.textContent=d.extract;
+    if(d.img){ iEl.src=d.img; iEl.style.display="block"; }
+    sEl.innerHTML="출처: "+esc(d.srcNote||"위키백과")
+      +(d.url?' · <a href="'+esc(d.url)+'" target="_blank" rel="noopener">원문 보기</a>':"");
+  }
+
+  var cacheKey="v8|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
+  var cached=wikiCache[cacheKey];
+  if(cached){ renderInfo(cached); return; }
+
+  bEl.textContent="🔎 인터넷에서 설명을 찾는 중…";
+  lookupInfo(item,query,enQuery)
+    .then(function(data){
+      wikiCache[cacheKey]=data;
+      var keys=Object.keys(wikiCache);
+      if(keys.length>50) delete wikiCache[keys[0]];
+      save(LS_WIKI,wikiCache);
+      renderInfo(data);
+    })
+    .catch(function(){
+      var tpl=typeTemplate(e.title);
+      if(tpl){ renderInfo(tpl); return; }
+      bEl.textContent="이 장소에 대한 위키백과·위키데이터 문서를 찾지 못했습니다.\n\n✏️에서 이름을 공식 명칭(현지어·영문)으로 바꾸면 검색이 잘 되기도 합니다.";
+    });
+}
+
+/* ================= Firebase 동기화 (v9.1: 병합 + 툼스톤) ================= */
+var FB_CONFIG={
+  apiKey:"AIzaSyDj1-j170cxsnWUh2EGdeO3AGVeobQYv04",
+  authDomain:"travel-nav-7e826.firebaseapp.com",
+  databaseURL:"https://travel-nav-7e826-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"travel-nav-7e826",
+  storageBucket:"travel-nav-7e826.firebasestorage.app",
+  messagingSenderId:"853651170539",
+  appId:"1:853651170539:web:93fc66d40900c3de318aae"
+};
+var LS_SYNC="wtrip_sync_code_v7", LS_DEV="wtrip_device_v7", LS_DEL="wtrip_deleted_v9";
+var syncCode=loadObj(LS_SYNC,null);
+var DEVICE_ID=loadObj(LS_DEV,null);
+if(!DEVICE_ID){ DEVICE_ID="dev_"+Math.random().toString(36).slice(2,10); save(LS_DEV,DEVICE_ID); }
+var deletedTrips=loadObj(LS_DEL,{}); /* 삭제 툼스톤: {tripId: 삭제시각} */
+var fbdb=null, fbRef=null, lastApplied=0, applyingRemote=false;
+
+function loadFirebase(){
+  return new Promise(function(res,rej){
+    if(window.firebase&&window.firebase.database) return res();
+    var s1=document.createElement("script");
+    s1.src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js";
+    s1.onload=function(){
+      var s2=document.createElement("script");
+      s2.src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js";
+      s2.onload=res;
+      s2.onerror=function(){ rej(new Error("Firebase 로드 실패")); };
+      document.head.appendChild(s2);
+    };
+    s1.onerror=function(){ rej(new Error("Firebase 로드 실패 (인터넷 필요)")); };
+    document.head.appendChild(s1);
+  });
+}
+
+function syncStatusText(){
+  return syncCode?("☁ 동기화 연결됨 · 코드: "+syncCode):"";
+}
+
+/* 여행 목록 병합: 합집합, 같은 id는 updatedAt이 최신인 쪽, 툼스톤 제외 */
+function mergeTrips(localArr,remoteArr,delMap){
+  var map={},order=[],tookLocal=false;
+  function addAll(arr,isLocal){
+    (arr||[]).forEach(function(t){
+      if(!t||!t.id||delMap[t.id]) return;
+      var ex=map[t.id];
+      if(!ex){ map[t.id]=t; order.push(t.id); if(isLocal) tookLocal=true; }
+      else if((t.updatedAt||0)>(ex.updatedAt||0)){ map[t.id]=t; if(isLocal) tookLocal=true; }
+    });
+  }
+  addAll(remoteArr,false);
+  addAll(localArr,true);
+  return {list:order.map(function(id){ return map[id]; }),tookLocal:tookLocal};
+}
+
+function startSync(){
+  if(!syncCode) return;
+  loadFirebase().then(function(){
+    if(!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+    fbdb=firebase.database();
+    if(fbRef) fbRef.off();
+    fbRef=fbdb.ref("rooms/"+syncCode);
+    fbRef.on("value",function(snap){
+      var v=snap.val();
+      if(!v){ syncPush(); return; } /* 방이 비어있으면 내 데이터 업로드 */
+      if(v.dev===DEVICE_ID) return;
+      if(!v.updatedAt||v.updatedAt<=lastApplied) return;
+      applyingRemote=true;
+      /* 툼스톤 병합 */
+      var rDel=v.deleted||{};
+      Object.keys(rDel).forEach(function(k){
+        if(!deletedTrips[k]||rDel[k]>deletedTrips[k]) deletedTrips[k]=rDel[k];
+      });
+      /* 여행 병합: 로컬에만 있거나 더 최신인 여행을 살림 */
+      var mg=mergeTrips(trips,v.trips||[],deletedTrips);
+      trips=mg.list;
+      edits=v.edits||{};
+      done=v.done||{};
+      save(LS_TRIPS,trips); save(LS_EDIT,edits); save(LS_DONE,done); save(LS_DEL,deletedTrips);
+      if(!trips.some(function(t){ return t.id===currentId; })){
+        currentId=trips.length?trips[0].id:null;
+        save(LS_CUR,currentId);
+      }
+      lastApplied=v.updatedAt;
+      applyingRemote=false;
+      render();
+      if(mg.tookLocal){
+        setTimeout(syncPush,400); /* 병합 결과를 서버에 재전송해 모든 기기 수렴 */
+        status(syncStatusText()+" · 병합 후 재전송");
+      }else{
+        status(syncStatusText()+" · 업데이트 수신됨");
+      }
+    },function(err){
+      status("⚠ 동기화 오류: "+err.message+" (DB 규칙 확인 필요)");
+    });
+    status(syncStatusText());
+  }).catch(function(e){ status("⚠ "+e.message); });
+}
+
+function stopSync(){
+  if(fbRef){ fbRef.off(); fbRef=null; }
+  syncCode=null;
+  localStorage.removeItem(LS_SYNC);
+  status("동기화 해제됨 (이 기기의 일정은 유지)");
+}
+
+function syncPush(){
+  if(!fbRef||!syncCode||applyingRemote) return;
+  var state={trips:trips,deleted:deletedTrips,edits:edits,done:done,updatedAt:Date.now(),dev:DEVICE_ID};
+  lastApplied=state.updatedAt;
+  try{
+    fbRef.set(JSON.parse(JSON.stringify(state)));
+  }catch(e){}
+}
+
+/* 동기화 설정 UI */
+var syncOverlayEl=document.getElementById("syncOverlay");
+document.getElementById("syncBtn").addEventListener("click",function(){
+  document.getElementById("f_synccode").value=syncCode||"";
+  document.getElementById("syncState").textContent=syncCode?("현재 연결됨: "+syncCode):"현재 미연결 — 이 기기에만 저장 중";
+  syncOverlayEl.classList.add("show");
+});
+document.getElementById("syncCloseBtn").addEventListener("click",function(){ syncOverlayEl.classList.remove("show"); });
+syncOverlayEl.addEventListener("click",function(ev){ if(ev.target===syncOverlayEl) syncOverlayEl.classList.remove("show"); });
+document.getElementById("syncSaveBtn").addEventListener("click",function(){
+  var code=document.getElementById("f_synccode").value.trim();
+  if(!/^[A-Za-z0-9_\-]{6,40}$/.test(code)){
+    alert("코드는 영문·숫자·하이픈으로 6자 이상이어야 합니다"); return;
+  }
+  syncCode=code; save(LS_SYNC,syncCode);
+  syncOverlayEl.classList.remove("show");
+  startSync();
+});
+document.getElementById("syncOffBtn").addEventListener("click",function(){
+  if(!syncCode){ syncOverlayEl.classList.remove("show"); return; }
+  if(confirm("동기화를 해제할까요? (기기의 일정은 그대로 유지됩니다)")){
+    stopSync();
+    syncOverlayEl.classList.remove("show");
+  }
+});
+
+/* ================= 편집 모달 ================= */
+var editingId=null, editingDate=null, creating=false;
+var overlay=document.getElementById("overlay");
+
+function findItem(id){
+  var trip=currentTrip();
+  if(!trip) return null;
+  for(var i=0;i<trip.days.length;i++){
+    for(var j=0;j<trip.days[i].items.length;j++){
+      if(trip.days[i].items[j].id===id) return trip.days[i].items[j];
+    }
+  }
+  return null;
+}
+
+function openEdit(id){
+  creating=false; editingId=id;
+  var item=findItem(id);
+  if(!item) return;
+  var e=effective(item);
+  document.getElementById("sheetTitle").textContent="일정 편집";
+  document.getElementById("f_time").value=e.time||"";
+  document.getElementById("f_title").value=e.title||"";
+  document.getElementById("f_dest").value=e.dest!==null?e.dest:(item.lat!=null?item.lat+","+item.lng:(item.q||""));
+  document.getElementById("f_memo").value=e.memo||"";
+  document.getElementById("f_walk").checked=!!e.walk;
+  overlay.classList.add("show");
+}
+
+function openCreate(dateKey){
+  creating=true; editingId=null; editingDate=dateKey;
+  document.getElementById("sheetTitle").textContent="일정 추가";
+  document.getElementById("f_time").value="";
+  document.getElementById("f_title").value="";
+  document.getElementById("f_dest").value="";
+  document.getElementById("f_memo").value="";
+  document.getElementById("f_walk").checked=false;
+  overlay.classList.add("show");
+}
+
+document.getElementById("cancelBtn").addEventListener("click",function(){
+  overlay.classList.remove("show");
+});
+overlay.addEventListener("click",function(ev){
+  if(ev.target===overlay) overlay.classList.remove("show");
+});
+
+document.getElementById("saveBtn").addEventListener("click",function(){
+  var time=document.getElementById("f_time").value.trim();
+  var title=document.getElementById("f_title").value.trim();
+  var dest=document.getElementById("f_dest").value.trim();
+  var memo=document.getElementById("f_memo").value.trim();
+  var walk=document.getElementById("f_walk").checked;
+  var trip=currentTrip();
+  if(!trip){ alert("먼저 PDF를 업로드하세요"); return; }
+  if(creating){
+    if(!title){ alert("이름을 입력해주세요"); return; }
+    var day=trip.days.find(function(d){ return d.date===editingDate; });
+    if(day){
+      var nid=trip.id+"_c"+Date.now();
+      var c=parseCoordStr(dest);
+      var newItem={id:nid,time:time||"—",type:"spot",mode:walk?"w":"d",title:title};
+      if(c){ newItem.lat=parseFloat(c.lat); newItem.lng=parseFloat(c.lng); }
+      else if(dest){ newItem.q=dest; }
+      else{ newItem.q=title; }
+      day.items.push(newItem);
+      trip.updatedAt=Date.now();
+      save(LS_TRIPS,trips);
+      if(memo){ edits[nid]={time:time||"—",title:title,dest:"",memo:memo,walk:walk}; save(LS_EDIT,edits); }
+    }
+  }else{
+    edits[editingId]={time:time,title:title,dest:dest,memo:memo,walk:walk};
+    save(LS_EDIT,edits);
+  }
+  overlay.classList.remove("show");
+  syncPush();
+  render();
+});
+
+/* ================= 이벤트 위임 ================= */
+document.body.addEventListener("click",function(ev){
+  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll]");
+  if(!el) return;
+  if(el.dataset.park){
+    var pitem=findItem(el.dataset.park);
+    if(pitem){
+      var pt=navTargets(pitem);
+      if(pt) openParking(pt);
+    }
+    return;
+  }
+  if(el.dataset.nearbyll){
+    openNearby(el.dataset.nearbyll,"restaurants");
+    return;
+  }
+  if(el.dataset.navg){
+    var nitem=findItem(el.dataset.navg);
+    if(!nitem) return;
+    var nt;
+    if(el.dataset.dest){
+      var pc=parseCoordStr(el.dataset.dest);
+      nt=pc?{ll:pc.lat+","+pc.lng,q:null}:{ll:null,q:el.dataset.dest};
+    }else{
+      nt=navTargets(nitem);
+    }
+    if(!nt) return;
+    openGoogleNav(nt,el.dataset.mode||"d");
+    return;
+  }
+  if(el.dataset.info){
+    var iitem=findItem(el.dataset.info);
+    if(iitem) showInfo(iitem);
+    return;
+  }
+  if(el.dataset.chk){
+    var id=el.dataset.chk;
+    if(done[id]) delete done[id]; else done[id]=true;
+    save(LS_DONE,done); syncPush(); render(); return;
+  }
+  if(el.dataset.edit){ openEdit(el.dataset.edit); return; }
+  if(el.dataset.del){
+    if(!confirm("이 일정을 삭제할까요?")) return;
+    var trip=currentTrip(), did=el.dataset.del;
+    if(trip){
+      trip.days.forEach(function(d){
+        d.items=d.items.filter(function(x){ return x.id!==did; });
+      });
+      trip.updatedAt=Date.now();
+      save(LS_TRIPS,trips);
+    }
+    delete edits[did]; delete done[did];
+    save(LS_EDIT,edits); save(LS_DONE,done);
+    syncPush();
+    render(); return;
+  }
+  if(el.dataset.fold){
+    var fk=el.dataset.fold;
+    if(foldMap[fk]) delete foldMap[fk]; else foldMap[fk]=1;
+    save(LS_FOLD,foldMap);
+    render(); return;
+  }
+  if(el.dataset.add){ openCreate(el.dataset.add); return; }
+  if(el.dataset.jump){
+    var tnow=currentTrip();
+    if(tnow){
+      var fk2=tnow.id+"|"+el.dataset.jump.replace("day_","");
+      if(foldMap[fk2]){ delete foldMap[fk2]; save(LS_FOLD,foldMap); render(); }
+    }
+    var sec=document.getElementById(el.dataset.jump);
+    if(sec) sec.scrollIntoView({behavior:"smooth",block:"start"});
+    return;
+  }
+});
+
+/* ================= 초기화 ================= */
+render();
+(function(){
+  var sec=document.getElementById("day_"+todayStr);
+  if(sec) setTimeout(function(){ sec.scrollIntoView({block:"start"}); },100);
+})();
+
+if(syncCode) startSync();
+
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("./sw.js").catch(function(){});
+}
+</script>
+</body>
+</html>
