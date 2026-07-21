@@ -230,7 +230,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v10.2 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v11 · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -383,6 +383,14 @@ function openGoogleNav(t,mode){
   }
 }
 
+/* 좌표 주변 검색 (식당 등) */
+function openNearby(ll,q){
+  var web="https://www.google.com/maps/search/"+encodeURIComponent(q)+"/@"+ll+",16z";
+  if(IS_ANDROID){ launchWithFallback("geo:"+ll+"?q="+encodeURIComponent(q),web); }
+  else if(IS_IOS){ launchWithFallback("comgooglemaps://?q="+encodeURIComponent(q)+"&center="+ll+"&zoom=16",web); }
+  else{ window.open(web,"_blank"); }
+}
+
 /* 목적지 주변 주차장 검색 (구글지도) */
 function openParking(t){
   if(t.ll){
@@ -451,9 +459,79 @@ function carEvent(title){
   return /반납|return/i.test(title)?-1:1;
 }
 
+/* ===== PDF 내용 분석: 각 항목의 "역할" 판정 ===== */
+/* 이동 목적지가 아닌 메모성 항목 */
+var NO_NAV_RE=/예약\s*(완료|필수|사이트)|티켓\s*예약|하산|체크\s*아웃|짐\s*(맡|맞)기|자동\s*결재|무료취소|시내\s*관광|시내\s*구경|못간\s*곳|어제\s*못간|관광$|구경$/;
+
+/* 이름 검색용 정리: 콜론 뒤 메모·설명성 괄호 제거 */
+function cleanDestName(t){
+  var s=String(t||"");
+  s=s.replace(/[:：].*$/,"");
+  s=s.replace(/\((?:[^)]*(?:예약|순위|생략|시간|간식|제철|유명|추천|이용)[^)]*)\)/g," ");
+  s=s.replace(/\s+/g," ").trim();
+  return s||String(t||"");
+}
+
+/* 여행 전체에서 도시/공항 이름을 추출해 렌트카 항목에 연결 */
+function buildCityMap(trip){
+  var flat=[];
+  trip.days.forEach(function(d){ d.items.forEach(function(it){ flat.push(it); }); });
+  var cities=flat.map(function(it){
+    var t=effective(it).title||"";
+    var m=/([A-Z][A-Za-z]{2,})\s+(?:International\s+)?Airport/.exec(t);
+    if(m) return {name:m[1].trim(),en:true};
+    var m2=/([가-힣]{2,8})\s*공항/.exec(t);
+    if(m2) return {name:m2[1].trim(),en:false};
+    var m3=/^([가-힣]{2,8})\s*(도착|출발)/.exec(t);
+    if(m3&&!/호텔|체크/.test(t)) return {name:m3[1].trim(),en:false};
+    return null;
+  });
+  var map={};
+  flat.forEach(function(it,i){
+    if(carEvent(effective(it).title)===0) return;
+    var c=null;
+    for(var j=i;j>=0&&!c;j--) if(cities[j]) c=cities[j];
+    for(var k=i;k<flat.length&&!c;k++) if(cities[k]) c=cities[k];
+    if(c) map[it.id]=c;
+  });
+  return map;
+}
+
+/* 항목 역할 판정: {nav, dest, nearbyLL, note} */
+function analyzeItem(item,e,kind,cityMap,prevCoord){
+  var title=e.title||"";
+  var hasCoord=(item.lat!=null)||(e.dest!=null&&e.dest!=="");
+
+  /* 1) 렌트카 픽업/반납 → 해당 공항 렌트카 영업소를 목적지로 */
+  var cev=carEvent(title);
+  if(cev!==0){
+    var c=cityMap&&cityMap[item.id];
+    if(c){
+      var q=c.en?(c.name+" Airport car rental"):(c.name+" 공항 "+(/허츠|hertz/i.test(title)?"허츠 ":"")+"렌트카");
+      return {nav:true,dest:{ll:null,q:q},note:(cev===-1?"반납 장소":"픽업 장소")+": "+q};
+    }
+    return {nav:false}; /* 도시를 못 찾으면 엉뚱한 곳 대신 버튼 없음 */
+  }
+
+  /* 2) 예약·메모성 항목 (좌표 없을 때) */
+  if(!hasCoord&&NO_NAV_RE.test(title)) return {nav:false};
+
+  /* 3) 좌표가 있으면 항공편 표기라도 실제 목적지 (예: 하네다 T2로 이동) */
+  if(hasCoord) return {nav:true,dest:null};
+
+  /* 4) 좌표 없는 항공·안내 항목 */
+  if(kind.k==="flight"||kind.k==="info") return {nav:false};
+
+  /* 5) 좌표 없는 식사 → 주변 식당 검색 버튼 */
+  if(kind.k==="meal") return {nav:false,nearbyLL:prevCoord||null};
+
+  /* 6) 그 외 → 정리된 이름으로 검색 */
+  return {nav:true,dest:{ll:null,q:cleanDestName(title)}};
+}
+
 /* 하루 일정 → 동선(도보/차량/대중교통 구간 + 주차 복귀 + 요약) */
 var WALK_MAX_KM=1.5, WALK_FACTOR=1.25, WALK_M_PER_MIN=75, DRIVE_FACTOR=1.3;
-function buildDayRoute(day,car){
+function buildDayRoute(day,car,cityMap){
   car=car||{has:true};
   var rows=[],prev=null,parking=null;
   var walkKm=0,driveKm=0,driveLegs=0,transitLegs=0,spots=0;
@@ -485,9 +563,10 @@ function buildDayRoute(day,car){
             /* 400km 초과 = 항공 등 장거리 구간 (도로 이동 아님) */
             rows.push({leg:"far"});
             computedWalk=car.has?"d":"t";
-            prev=item;
             if(kind.k==="park") parking=item;
-            rows.push({item:item,kind:kind,computedWalk:computedWalk});
+            var anF=analyzeItem(item,e,kind,cityMap,prev&&prev.lat!=null?(prev.lat+","+prev.lng):null);
+            prev=item;
+            rows.push({item:item,kind:kind,computedWalk:computedWalk,an:anF});
             var cevF=carEvent(e.title);
             if(cevF===1) car.has=true; else if(cevF===-1) car.has=false;
             return;
@@ -508,7 +587,8 @@ function buildDayRoute(day,car){
       if(computedWalk==null) computedWalk=car.has?"d":"t"; /* 그날 첫 좌표 항목 */
       prev=item;
     }
-    rows.push({item:item,kind:kind,computedWalk:computedWalk});
+    var an=analyzeItem(item,e,kind,cityMap,prev&&prev.lat!=null?(prev.lat+","+prev.lng):null);
+    rows.push({item:item,kind:kind,computedWalk:computedWalk,an:an});
     var cev=carEvent(e.title);
     if(cev===1) car.has=true; else if(cev===-1) car.has=false;
   });
@@ -529,10 +609,11 @@ var todayStr=(function(){
   return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
 })();
 
-function itemHTML(item,dateKey,kind,computedWalk){
+function itemHTML(item,dateKey,kind,computedWalk,an){
   var e=effective(item);
-  var t=navTargets(item);
   if(!kind) kind=kindOf(item,e.title);
+  if(!an) an={nav:true,dest:null};
+  var t=an.dest?an.dest:navTargets(item);
   var mode=(edits[item.id]&&edits[item.id].walk!=null)
     ? (edits[item.id].walk?"w":"d")
     : (computedWalk!=null?computedWalk:(item.mode==="w"?"w":"d"));
@@ -552,16 +633,21 @@ function itemHTML(item,dateKey,kind,computedWalk){
    +'</div>';
   if(item.desc) h+='<div class="desc">'+esc(item.desc)+'</div>';
   if(e.memo) h+='<div class="memo">📝 '+esc(e.memo)+'</div>';
+  if(an.note) h+='<div class="parkinfo">🚙 '+esc(an.note)+'</div>';
   if(item.lat!=null&&!(e.dest!==null&&e.dest!=="")) h+='<div class="coordtag">📍 좌표 인식됨 · 오프라인 네비 OK</div>';
 
   var btns="";
-  if(t&&item.type!=="flight"&&item.type!=="info"){
-    /* 1번 버튼: 차량(🚗) 또는 도보(🚶) 턴바이턴 · 2번 버튼: 대중교통(도보 포함) — 항상 표시 */
+  var destAttr=(an.dest&&an.dest.q)?(' data-dest="'+esc(an.dest.q)+'"'):"";
+  if(an.nav&&t){
+    /* 1번: 차량(🚗)/도보(🚶) 턴바이턴 · 2번: 대중교통(도보 포함) */
     var p=(mode==="w")?"w":"d";
-    btns+='<button class="nav-btn nav-g'+(p==="w"?" walk":"")+'" data-navg="'+item.id+'" data-mode="'+p+'">'+(p==="w"?"🚶":"🚗")+' 구글 네비</button>';
-    btns+='<button class="nav-btn nav-t" data-navg="'+item.id+'" data-mode="t">🚇 대중교통</button>';
+    btns+='<button class="nav-btn nav-g'+(p==="w"?" walk":"")+'" data-navg="'+item.id+'" data-mode="'+p+'"'+destAttr+'>'+(p==="w"?"🚶":"🚗")+' 구글 네비</button>';
+    btns+='<button class="nav-btn nav-t" data-navg="'+item.id+'" data-mode="t"'+destAttr+'>🚇 대중교통</button>';
   }
-  if(item.type==="spot"){
+  if(!an.nav&&an.nearbyLL){
+    btns+='<button class="nav-btn nav-t" data-nearbyll="'+esc(an.nearbyLL)+'">🍴 주변 식당 찾기</button>';
+  }
+  if(an.nav&&item.type==="spot"){
     btns+='<button class="info-btn" data-info="'+item.id+'">ℹ️</button>';
     if(t) btns+='<button class="park-btn" data-park="'+item.id+'">🅿</button>';
   }
@@ -611,9 +697,10 @@ function render(){
     return d.items.some(function(it){ return carEvent(effective(it).title)!==0; });
   });
   var carState={has:!tripHasCar};
+  var cityMap=buildCityMap(trip); /* PDF 흐름 분석: 렌트카 영업소 도시 판정 */
   trip.days.forEach(function(day){
     var isToday=day.date===todayStr;
-    var rt=buildDayRoute(day,carState);
+    var rt=buildDayRoute(day,carState,cityMap);
     var fkey=trip.id+"|"+day.date;
     var isFold=!!foldMap[fkey];
     var chips=(rt.driveLegs?("🚗 "+rt.driveLegs+" · "):"")
@@ -634,7 +721,7 @@ function render(){
       else if(r.leg==="transit") mh+='<div class="leg transit">🚇 대중교통 이동 · 약 '+r.km+'km</div>';
       else if(r.leg==="far") mh+='<div class="leg fartravel">✈️ 장거리 이동</div>';
       else if(r.leg==="back") mh+='<div class="leg back">↩ 🅿 주차장 복귀 · 도보 약 '+r.min+'분</div>';
-      else mh+=itemHTML(r.item,day.date,r.kind,r.computedWalk);
+      else mh+=itemHTML(r.item,day.date,r.kind,r.computedWalk,r.an);
     });
     mh+='</div>'
       +'<button class="addrow" data-add="'+esc(day.date)+'">＋ 일정 추가 ('+esc(day.label)+')</button>'
@@ -1527,7 +1614,7 @@ document.getElementById("saveBtn").addEventListener("click",function(){
 
 /* ================= 이벤트 위임 ================= */
 document.body.addEventListener("click",function(ev){
-  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold]");
+  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll]");
   if(!el) return;
   if(el.dataset.park){
     var pitem=findItem(el.dataset.park);
@@ -1537,10 +1624,20 @@ document.body.addEventListener("click",function(ev){
     }
     return;
   }
+  if(el.dataset.nearbyll){
+    openNearby(el.dataset.nearbyll,"restaurants");
+    return;
+  }
   if(el.dataset.navg){
     var nitem=findItem(el.dataset.navg);
     if(!nitem) return;
-    var nt=navTargets(nitem);
+    var nt;
+    if(el.dataset.dest){
+      var pc=parseCoordStr(el.dataset.dest);
+      nt=pc?{ll:pc.lat+","+pc.lng,q:null}:{ll:null,q:el.dataset.dest};
+    }else{
+      nt=navTargets(nitem);
+    }
     if(!nt) return;
     openGoogleNav(nt,el.dataset.mode||"d");
     return;
