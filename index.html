@@ -197,6 +197,35 @@ section.day{margin-bottom:26px}
 #aiBox.show{padding:12px 14px;max-height:none;overflow:visible}
 #aiBox .ai-src{font-size:11.5px;color:var(--sub);margin-top:8px}
 
+/* ===== v12 QR 지갑 ===== */
+.qrchip{cursor:pointer;background:#E7DFF2 !important;color:#5B4B8A !important}
+.qr-add{width:100%;border:1.5px dashed var(--line);background:transparent;color:var(--sub);
+  border-radius:12px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;margin:6px 0 14px}
+.qr-group{margin-bottom:16px}
+.qr-group h4{margin:0 0 8px;font-size:14px;color:var(--ink)}
+.qr-row{display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--line);
+  border-radius:12px;padding:8px;margin-bottom:8px}
+.qr-row img{width:52px;height:52px;object-fit:cover;border-radius:8px;background:#fff;flex:0 0 auto}
+.qr-row .meta{flex:1;min-width:0}
+.qr-row .nm{font-size:14.5px;font-weight:800}
+.qr-row .lb{font-size:12px;color:var(--sub)}
+.qr-row .open{background:#5B4B8A;color:#fff;border:none;border-radius:9px;padding:9px 12px;font-size:13px;font-weight:700;cursor:pointer}
+.qr-row .rm{background:#fff;border:1.5px solid var(--line);color:var(--danger);border-radius:9px;padding:9px 10px;font-size:13px;cursor:pointer}
+.qr-empty{color:var(--sub);font-size:13.5px;text-align:center;padding:18px 6px;line-height:1.7}
+
+/* 전체화면 뷰어 */
+#qrView{position:fixed;inset:0;z-index:300;background:#fff;display:none;flex-direction:column;
+  align-items:center;justify-content:center;padding:16px;
+  padding-top:calc(16px + env(safe-area-inset-top));padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+#qrView.show{display:flex}
+#qrView .cap{font-size:17px;font-weight:800;color:#111;margin-bottom:10px;text-align:center}
+#qrView .cap small{display:block;font-size:12.5px;color:#666;font-weight:600;margin-top:3px}
+#qrView img{max-width:100%;max-height:62vh;object-fit:contain;border:1px solid #eee;border-radius:8px}
+#qrView .tip{font-size:12px;color:#888;margin-top:10px;text-align:center}
+#qrView .ctl{display:flex;gap:10px;margin-top:14px;width:100%;max-width:420px}
+#qrView .ctl button{flex:1;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;border:1.5px solid #ddd;background:#fff;color:#333}
+#qrView .ctl .close{background:#111;color:#fff;border-color:#111}
+
 footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 /* ===== 드래그&드롭 ===== */
@@ -220,6 +249,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
   <div class="triprow">
     <select id="tripSel"></select>
     <button class="hbtn pdf" id="pdfBtn">📄 PDF</button>
+    <button class="hbtn" id="qrBtn">🎫</button>
     <button class="hbtn" id="syncBtn">☁</button>
     <button class="hbtn" id="delTripBtn">🗑</button>
   </div>
@@ -230,7 +260,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v11 · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v12 · 🎫 QR 지갑 · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -252,6 +282,44 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
       <button class="save-btn" id="saveBtn">저장</button>
       <button class="cancel-btn" id="cancelBtn">취소</button>
     </div>
+  </div>
+</div>
+
+<!-- QR 지갑 모달 -->
+<div class="overlay" id="qrOverlay">
+  <div class="sheet">
+    <h3>🎫 입국 QR 지갑</h3>
+    <div class="hint" style="margin-top:2px">Visit Japan Web QR을 캡처해 날짜·사람별로 저장해두면, 공항에서 인터넷 없이도 바로 열 수 있습니다.</div>
+    <button class="qr-add" id="qrAddBtn">＋ QR 추가</button>
+    <div id="qrForm" style="display:none">
+      <label>날짜</label>
+      <select id="qr_date"></select>
+      <label>이름 (여권 영문명과 동일 인물)</label>
+      <input type="text" id="qr_person" placeholder="예: 유경호" list="qrPersons">
+      <datalist id="qrPersons"></datalist>
+      <label>구분</label>
+      <input type="text" id="qr_label" placeholder="예: 입국 통합QR / 세관신고">
+      <div class="btnrow">
+        <button class="save-btn" id="qrPickBtn">📷 이미지 선택 후 저장</button>
+        <button class="cancel-btn" id="qrFormCancel">취소</button>
+      </div>
+      <div id="qrFormMsg" class="hint"></div>
+    </div>
+    <div id="qrList"></div>
+    <button class="close-btn" id="qrClose">닫기</button>
+  </div>
+</div>
+<input type="file" id="qrFile" accept="image/*" style="display:none">
+
+<!-- QR 전체화면 뷰어 -->
+<div id="qrView">
+  <div class="cap" id="qrViewCap"></div>
+  <img id="qrViewImg" alt="QR">
+  <div class="tip">화면 밝기를 최대로 올리면 인식이 잘 됩니다</div>
+  <div class="ctl">
+    <button id="qrPrev">◀ 이전</button>
+    <button class="close" id="qrViewClose">닫기</button>
+    <button id="qrNext">다음 ▶</button>
   </div>
 </div>
 
@@ -603,6 +671,205 @@ function buildDayRoute(day,car,cityMap){
   return {rows:rows,walkKm:walkKm,driveKm:driveKm,driveLegs:driveLegs,transitLegs:transitLegs,spots:spots};
 }
 
+/* ================= v12 QR 지갑 ================= */
+var LS_QR="wtrip_qr_v12";
+var qrState=loadObj(LS_QR,{items:{},del:{}});
+if(!qrState.items) qrState.items={};
+if(!qrState.del) qrState.del={};
+var qrRef=null, qrApplying=false, qrLastTs=0;
+
+function qrSave(){ try{ save(LS_QR,qrState); }catch(e){ alert("저장 공간이 부족합니다. 오래된 QR을 삭제해주세요."); } }
+function qrListFor(date){
+  return Object.keys(qrState.items).map(function(k){ return qrState.items[k]; })
+    .filter(function(q){ return !date||q.date===date; })
+    .sort(function(a,b){ return (a.date===b.date)?((a.person||"")<(b.person||"")?-1:1):(a.date<b.date?-1:1); });
+}
+function qrCountForDate(date){ return qrListFor(date).length; }
+
+/* 이미지 압축 (QR 인식률 유지: 긴 변 1000px, 품질 0.9) */
+function compressImage(file){
+  return new Promise(function(res,rej){
+    var fr=new FileReader();
+    fr.onload=function(){
+      var img=new Image();
+      img.onload=function(){
+        function draw(maxPx,q){
+          var sc=Math.min(1,maxPx/Math.max(img.width,img.height));
+          var c=document.createElement("canvas");
+          c.width=Math.max(1,Math.round(img.width*sc));
+          c.height=Math.max(1,Math.round(img.height*sc));
+          var cx=c.getContext("2d");
+          cx.fillStyle="#fff"; cx.fillRect(0,0,c.width,c.height);
+          cx.drawImage(img,0,0,c.width,c.height);
+          return c.toDataURL("image/jpeg",q);
+        }
+        var d=draw(1000,0.9);
+        if(d.length>600000) d=draw(800,0.85);
+        if(d.length>600000) d=draw(640,0.8);
+        res(d);
+      };
+      img.onerror=function(){ rej(new Error("이미지를 읽을 수 없습니다")); };
+      img.src=fr.result;
+    };
+    fr.onerror=function(){ rej(new Error("파일 읽기 실패")); };
+    fr.readAsDataURL(file);
+  });
+}
+
+/* ---- 지갑 UI ---- */
+var qrOverlay=document.getElementById("qrOverlay");
+var qrFilterDate=null;
+
+function qrRenderList(){
+  var el=document.getElementById("qrList");
+  var all=qrListFor(qrFilterDate);
+  if(!all.length){
+    el.innerHTML='<div class="qr-empty">저장된 QR이 없습니다.<br>Visit Japan Web에서 QR을 캡처한 뒤 ＋ 버튼으로 추가하세요.<br>동반자는 각자 계정으로 등록해야 QR이 따로 발급됩니다.</div>';
+    return;
+  }
+  var byDate={},order=[];
+  all.forEach(function(q){ if(!byDate[q.date]){ byDate[q.date]=[]; order.push(q.date); } byDate[q.date].push(q); });
+  var h="";
+  order.forEach(function(d){
+    h+='<div class="qr-group"><h4>📅 '+esc(d)+' · '+byDate[d].length+'장</h4>';
+    byDate[d].forEach(function(q){
+      h+='<div class="qr-row">'
+        +'<img src="'+esc(q.img)+'" alt="">'
+        +'<div class="meta"><div class="nm">'+esc(q.person||"이름 없음")+'</div>'
+        +'<div class="lb">'+esc(q.label||"입국 QR")+'</div></div>'
+        +'<button class="open" data-qropen="'+esc(q.id)+'">보기</button>'
+        +'<button class="rm" data-qrdel="'+esc(q.id)+'">🗑</button>'
+        +'</div>';
+    });
+    h+='</div>';
+  });
+  el.innerHTML=h;
+}
+
+function qrOpenWallet(date){
+  qrFilterDate=date||null;
+  /* 날짜 선택지 채우기 */
+  var sel=document.getElementById("qr_date"), trip=currentTrip(), opts="";
+  if(trip) trip.days.forEach(function(d){
+    opts+='<option value="'+esc(d.date)+'"'+((date&&d.date===date)?" selected":"")+'>'+esc(d.label)+' ('+esc(d.date)+')</option>';
+  });
+  sel.innerHTML=opts||'<option value="">일정 없음</option>';
+  /* 이름 자동완성 */
+  var names={},dl="";
+  Object.keys(qrState.items).forEach(function(k){ var p=qrState.items[k].person; if(p) names[p]=1; });
+  Object.keys(names).forEach(function(n){ dl+='<option value="'+esc(n)+'">'; });
+  document.getElementById("qrPersons").innerHTML=dl;
+  document.getElementById("qrForm").style.display="none";
+  document.getElementById("qrFormMsg").textContent="";
+  qrRenderList();
+  qrOverlay.classList.add("show");
+}
+
+document.getElementById("qrBtn").addEventListener("click",function(){ qrOpenWallet(null); });
+document.getElementById("qrClose").addEventListener("click",function(){ qrOverlay.classList.remove("show"); });
+qrOverlay.addEventListener("click",function(ev){ if(ev.target===qrOverlay) qrOverlay.classList.remove("show"); });
+document.getElementById("qrAddBtn").addEventListener("click",function(){
+  var f=document.getElementById("qrForm");
+  f.style.display=f.style.display==="none"?"block":"none";
+  if(f.style.display==="block"&&!document.getElementById("qr_label").value) document.getElementById("qr_label").value="입국 통합QR";
+});
+document.getElementById("qrFormCancel").addEventListener("click",function(){
+  document.getElementById("qrForm").style.display="none";
+});
+document.getElementById("qrPickBtn").addEventListener("click",function(){
+  if(!document.getElementById("qr_person").value.trim()){ alert("이름을 입력해주세요"); return; }
+  document.getElementById("qrFile").click();
+});
+document.getElementById("qrFile").addEventListener("change",function(ev){
+  var f=ev.target.files[0]; ev.target.value="";
+  if(!f) return;
+  var msg=document.getElementById("qrFormMsg");
+  msg.textContent="이미지 처리 중…";
+  compressImage(f).then(function(dataUrl){
+    var id="q_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
+    qrState.items[id]={
+      id:id,
+      date:document.getElementById("qr_date").value,
+      person:document.getElementById("qr_person").value.trim(),
+      label:document.getElementById("qr_label").value.trim()||"입국 QR",
+      img:dataUrl, ts:Date.now()
+    };
+    qrSave(); qrPush();
+    msg.textContent="✅ 저장됨 ("+Math.round(dataUrl.length/1024)+"KB) · 이름만 바꿔 동반자 QR도 이어서 추가하세요";
+    document.getElementById("qr_person").value="";
+    qrRenderList(); render();
+  }).catch(function(e){ msg.textContent="⚠ "+e.message; });
+});
+
+/* ---- 전체화면 뷰어 ---- */
+var qrViewList=[], qrViewIdx=0, qrWake=null;
+function qrShow(id){
+  var item=qrState.items[id];
+  if(!item) return;
+  qrViewList=qrListFor(item.date);
+  qrViewIdx=Math.max(0,qrViewList.findIndex(function(q){ return q.id===id; }));
+  qrPaint();
+  document.getElementById("qrView").classList.add("show");
+  if(navigator.wakeLock&&navigator.wakeLock.request){
+    navigator.wakeLock.request("screen").then(function(w){ qrWake=w; }).catch(function(){});
+  }
+}
+function qrPaint(){
+  var q=qrViewList[qrViewIdx]; if(!q) return;
+  document.getElementById("qrViewImg").src=q.img;
+  document.getElementById("qrViewCap").innerHTML=esc(q.person||"")
+    +'<small>'+esc(q.label||"")+' · '+esc(q.date)+' · '+(qrViewIdx+1)+'/'+qrViewList.length+'</small>';
+  var multi=qrViewList.length>1;
+  document.getElementById("qrPrev").style.display=multi?"block":"none";
+  document.getElementById("qrNext").style.display=multi?"block":"none";
+}
+document.getElementById("qrPrev").addEventListener("click",function(){
+  if(!qrViewList.length) return;
+  qrViewIdx=(qrViewIdx-1+qrViewList.length)%qrViewList.length; qrPaint();
+});
+document.getElementById("qrNext").addEventListener("click",function(){
+  if(!qrViewList.length) return;
+  qrViewIdx=(qrViewIdx+1)%qrViewList.length; qrPaint();
+});
+document.getElementById("qrViewClose").addEventListener("click",function(){
+  document.getElementById("qrView").classList.remove("show");
+  if(qrWake){ try{ qrWake.release(); }catch(e){} qrWake=null; }
+});
+
+/* ---- 동기화 (별도 경로 qr/{code}) ---- */
+function qrPush(){
+  if(!qrRef||qrApplying) return;
+  var st={items:qrState.items,del:qrState.del,updatedAt:Date.now(),dev:DEVICE_ID};
+  qrLastTs=st.updatedAt;
+  try{ qrRef.set(JSON.parse(JSON.stringify(st))); }catch(e){}
+}
+function qrStartSync(db,code){
+  qrRef=db.ref("qr/"+code);
+  qrRef.on("value",function(snap){
+    var v=snap.val();
+    if(!v){ qrPush(); return; }
+    if(v.dev===DEVICE_ID) return;
+    if(!v.updatedAt||v.updatedAt<=qrLastTs) return;
+    qrApplying=true;
+    var rItems=v.items||{}, rDel=v.del||{}, mine=false;
+    Object.keys(rDel).forEach(function(k){ if(!qrState.del[k]||rDel[k]>qrState.del[k]) qrState.del[k]=rDel[k]; });
+    Object.keys(rItems).forEach(function(k){
+      if(qrState.del[k]) return;
+      if(!qrState.items[k]||(rItems[k].ts||0)>(qrState.items[k].ts||0)) qrState.items[k]=rItems[k];
+    });
+    Object.keys(qrState.items).forEach(function(k){
+      if(qrState.del[k]){ delete qrState.items[k]; return; }
+      if(!rItems[k]) mine=true;
+    });
+    qrLastTs=v.updatedAt;
+    qrApplying=false;
+    qrSave();
+    if(qrOverlay.classList.contains("show")) qrRenderList();
+    render();
+    if(mine) setTimeout(qrPush,500);
+  },function(){});
+}
+
 /* ================= 렌더 ================= */
 var todayStr=(function(){
   var d=new Date();
@@ -712,6 +979,7 @@ function render(){
       +'<div class="dayhead'+(isToday?" is-today":"")+'" data-fold="'+esc(fkey)+'">'
       +'<span class="d">'+esc(day.label)+'</span>'
       +(isToday?'<span class="todaybadge">오늘</span>':"")
+      +(qrCountForDate(day.date)?'<span class="chips qrchip" data-qrdate="'+esc(day.date)+'">🎫 QR '+qrCountForDate(day.date)+'</span>':"")
       +'<span class="chips">'+chips+'</span>'
       +'<span class="foldarrow">▾</span>'
       +'</div><div class="items">';
@@ -1487,6 +1755,7 @@ function startSync(){
     },function(err){
       status("⚠ 동기화 오류: "+err.message+" (DB 규칙 확인 필요)");
     });
+    qrStartSync(fbdb,syncCode);
     status(syncStatusText());
   }).catch(function(e){ status("⚠ "+e.message); });
 }
@@ -1614,8 +1883,17 @@ document.getElementById("saveBtn").addEventListener("click",function(){
 
 /* ================= 이벤트 위임 ================= */
 document.body.addEventListener("click",function(ev){
-  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll]");
+  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll],[data-qrdate],[data-qropen],[data-qrdel]");
   if(!el) return;
+  if(el.dataset.qrdate){ qrOpenWallet(el.dataset.qrdate); return; }
+  if(el.dataset.qropen){ qrShow(el.dataset.qropen); return; }
+  if(el.dataset.qrdel){
+    if(!confirm("이 QR을 삭제할까요?")) return;
+    var qid=el.dataset.qrdel;
+    delete qrState.items[qid]; qrState.del[qid]=Date.now();
+    qrSave(); qrPush(); qrRenderList(); render();
+    return;
+  }
   if(el.dataset.park){
     var pitem=findItem(el.dataset.park);
     if(pitem){
