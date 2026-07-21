@@ -223,7 +223,7 @@ section.day{margin-bottom:26px}
 #qrView.show{display:flex}
 #qrView .cap{font-size:17px;font-weight:800;color:#111;margin-bottom:10px;text-align:center}
 #qrView .cap small{display:block;font-size:12.5px;color:#666;font-weight:600;margin-top:3px}
-#qrView img{max-width:100%;max-height:62vh;object-fit:contain;border:1px solid #eee;border-radius:8px}
+#qrView img{max-width:100%;max-height:70vh;object-fit:contain;border:1px solid #eee;border-radius:8px}
 #qrView .tip{font-size:12px;color:#888;margin-top:10px;text-align:center}
 #qrView .ctl{display:flex;gap:10px;margin-top:14px;width:100%;max-width:420px}
 #qrView .ctl button{flex:1;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;border:1.5px solid #ddd;background:#fff;color:#333}
@@ -263,7 +263,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v12.1 · 🎫 QR 지갑 · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v12.2 · 🎫 QR 지갑 · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -293,6 +293,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
   <div class="sheet">
     <h3>🎫 입국 QR 지갑</h3>
     <div class="hint" style="margin-top:2px">Visit Japan Web QR을 캡처해 날짜·사람별로 저장해두면, 공항에서 인터넷 없이도 바로 열 수 있습니다.</div>
+    <div class="hint" id="qrInfo" style="color:#5B4B8A;font-weight:700"></div>
     <button class="qr-add" id="qrAddBtn">＋ QR 추가</button>
     <div id="qrForm" style="display:none">
       <label>날짜</label>
@@ -690,26 +691,32 @@ function qrListFor(date){
 }
 function qrCountForDate(date){ return qrListFor(date).length; }
 
-/* 이미지 압축 (QR 인식률 유지: 긴 변 1000px, 품질 0.9) */
+/* 이미지 저장: 원본이 작으면 무손실 그대로, 클 때만 축소 (긴 변 1600px / 품질 0.92) */
 function compressImage(file){
   return new Promise(function(res,rej){
     var fr=new FileReader();
     fr.onload=function(){
+      var orig=fr.result;
       var img=new Image();
       img.onload=function(){
+        var maxSide=Math.max(img.width,img.height);
+        /* 스크린샷 화질 100% 유지 (원본이 충분히 작을 때) */
+        if(maxSide<=1600&&orig.length<=800000){ res(orig); return; }
         function draw(maxPx,q){
           var sc=Math.min(1,maxPx/Math.max(img.width,img.height));
           var c=document.createElement("canvas");
           c.width=Math.max(1,Math.round(img.width*sc));
           c.height=Math.max(1,Math.round(img.height*sc));
           var cx=c.getContext("2d");
+          cx.imageSmoothingEnabled=true;
+          if("imageSmoothingQuality" in cx) cx.imageSmoothingQuality="high";
           cx.fillStyle="#fff"; cx.fillRect(0,0,c.width,c.height);
           cx.drawImage(img,0,0,c.width,c.height);
           return c.toDataURL("image/jpeg",q);
         }
-        var d=draw(1000,0.9);
-        if(d.length>600000) d=draw(800,0.85);
-        if(d.length>600000) d=draw(640,0.8);
+        var d=draw(1600,0.92);
+        if(d.length>1100000) d=draw(1280,0.9);
+        if(d.length>1100000) d=draw(1000,0.86);
         res(d);
       };
       img.onerror=function(){ rej(new Error("이미지를 읽을 수 없습니다")); };
@@ -718,6 +725,35 @@ function compressImage(file){
     fr.onerror=function(){ rej(new Error("파일 읽기 실패")); };
     fr.readAsDataURL(file);
   });
+}
+
+/* ---- 30일 경과 자동 삭제 ---- */
+var QR_TTL_DAYS=30;
+function qrDaysLeft(dateStr){
+  var p=String(dateStr||"").split("-");
+  if(p.length!==3) return null;
+  var d=new Date(+p[0],+p[1]-1,+p[2]);
+  var today=new Date(); today.setHours(0,0,0,0);
+  var passed=Math.floor((today-d)/86400000);
+  return QR_TTL_DAYS-passed;
+}
+function qrPurgeExpired(){
+  var changed=0;
+  Object.keys(qrState.items).forEach(function(k){
+    var left=qrDaysLeft(qrState.items[k].date);
+    if(left!=null&&left<0){
+      delete qrState.items[k];
+      qrState.del[k]=Date.now();
+      changed++;
+    }
+  });
+  if(changed){ qrSave(); qrPush(); }
+  return changed;
+}
+function qrTotalKB(){
+  var n=0;
+  Object.keys(qrState.items).forEach(function(k){ n+=(qrState.items[k].img||"").length; });
+  return Math.round(n/1024);
 }
 
 /* ---- 지갑 UI ---- */
@@ -740,7 +776,9 @@ function qrRenderList(){
       h+='<div class="qr-row">'
         +'<img src="'+esc(q.img)+'" alt="">'
         +'<div class="meta"><div class="nm">'+esc(q.person||"이름 없음")+'</div>'
-        +'<div class="lb">'+esc(q.label||"입국 QR")+'</div></div>'
+        +'<div class="lb">'+esc(q.label||"입국 QR")
+        +(function(){ var L=qrDaysLeft(q.date); return (L!=null&&L<=7)?' · <span style="color:#B04A3A">자동삭제 D-'+L+'</span>':""; })()
+        +'</div></div>'
         +'<button class="open" data-qropen="'+esc(q.id)+'">보기</button>'
         +'<button class="rm" data-qrdel="'+esc(q.id)+'">🗑</button>'
         +'</div>';
@@ -751,6 +789,7 @@ function qrRenderList(){
 }
 
 function qrOpenWallet(date){
+  qrPurgeExpired();
   qrFilterDate=date||null;
   /* 날짜 선택지 채우기 */
   var sel=document.getElementById("qr_date"), trip=currentTrip(), opts="";
@@ -766,6 +805,8 @@ function qrOpenWallet(date){
   document.getElementById("qrForm").style.display="none";
   document.getElementById("qrFormMsg").textContent="";
   qrRenderList();
+  var kb=qrTotalKB(), info=document.getElementById("qrInfo");
+  if(info) info.textContent="저장 "+Object.keys(qrState.items).length+"장 · "+(kb>1024?(kb/1024).toFixed(1)+"MB":kb+"KB")+" · 여행 날짜 +"+QR_TTL_DAYS+"일이 지나면 자동 삭제";
   qrOverlay.classList.add("show");
 }
 
@@ -2029,6 +2070,7 @@ render();
   if(sec) setTimeout(function(){ sec.scrollIntoView({block:"start"}); },100);
 })();
 
+qrPurgeExpired(); /* 30일 지난 QR 자동 삭제 */
 if(syncCode) startSync();
 
 if("serviceWorker" in navigator){
