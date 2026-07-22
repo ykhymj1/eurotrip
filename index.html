@@ -787,10 +787,13 @@ function docType(text,name){
   var t=((text||"")+" "+(name||"")).toLowerCase();
   function cnt(re){ var m=t.match(re); return m?m.length:0; }
   var sc={
-    car: cnt(/hertz|avis|budget|sixt|enterprise|rent\s*a\s*car|렌트카|rental\s*car|차량\s*예약|반납\s*지점/g)*3,
-    air: cnt(/e-?ticket|electronic\s*ticket|itinerary\/receipt|airways|airlines|air\s*canada|항공권|passenger\s*ticket|flight\s*no|편명|탑승권/g)*3,
-    hotel: cnt(/booking\s*confirmation|체크인|체크아웃|check\s*-?\s*in|arrival\s*:|호텔|숙소|agoda|booking\.com|hotel|resort|객실|숙박|ドーミーイン|旅館/g)*2,
-    tkt: cnt(/gondola|pursuit|admission|입장권|입장료|attraction|icefield|skywalk|투어|tour\b|valid\s*from|expires|관람권|이용권/g)*2,
+    car: cnt(/hertz|avis|budget|sixt|enterprise|national|alamo|dollar|thrifty|europcar|rent\s*a\s*car|렌트카|rental\s*car|차량\s*예약|반납\s*지점|pick.?up\s*location|vehicle\s*class|reservation\s*no[^a-z]|rentacar|confirmation.*vehicle|vehicle.*confirmation/g)*3
+        +cnt(/hertz|avis|budget|sixt|enterprise/g)*2,
+    air: cnt(/e-?ticket|electronic\s*ticket|itinerary.{0,5}receipt|airways|airlines|air\s*canada|ana\b|항공권|passenger\s*ticket|flight\s*no|편명|탑승권|boarding|departure\s*date|arrival\s*date|seat\s*no/g)*3,
+    hotel: cnt(/booking\s*confirmation|voucher|체크인|arrival\s*:|departure\s*:/g)*3
+           +cnt(/호텔|숙소|agoda|booking\.com|hotel|resort|객실|숙박|ドーミーイン|旅館|inn\b|number\s*of\s*rooms|room\s*type/g)*2,
+    tkt: cnt(/gondola|pursuit|admission|입장권|입장료|attraction|icefield|skywalk|valid\s*from|expires|관람권|이용권/g)*2,
+    rest: cnt(/restaurant|레스토랑|식당|reservation.*table|table.*reservation|dining|予約.*席|ご予約|resy|opentable|tabelog|음식점|예약.*자리|cover[s]?\b|party\s*of/g)*3,
     etc: 0
   };
   var best="etc",bv=0;
@@ -798,29 +801,111 @@ function docType(text,name){
   if(bv===0) best="etc";
   return {hotel:{k:"hotel",ic:"🏨",label:"호텔"},air:{k:"air",ic:"✈️",label:"항공권"},
           car:{k:"car",ic:"🚗",label:"렌트카"},tkt:{k:"tkt",ic:"🎟",label:"입장권"},
+          rest:{k:"rest",ic:"🍽",label:"식당예약"},
           etc:{k:"etc",ic:"📎",label:"기타"}}[best];
 }
-var DOC_STOP=/^(호텔|체크인|체크아웃|출발|도착|관광|여행|공항|숙소|예약|완료|필수|지역|시내|에서|여기|저녁|점심|아침|식사|도보|이동|근처|주차|확인|가능|이용|하고|먼저|다른|우니|제철|음식|hotel|the|and|for|with|room|airport|inn|resort|tickets?|adult|booking|reservation|confirmation|check|out|from|정보|타고|내려서)$/i;
+var DOC_STOP=/^(호텔|체크인|체크아웃|출발|도착|관광|여행|공항|숙소|예약|완료|필수|지역|시내|에서|여기|저녁|점심|아침|식사|도보|이동|근처|주차|확인|가능|이용|하고|먼저|다른|우니|제철|음식|hotel|the|and|for|with|room|airport|inn|resort|tickets?|adult|booking|reservation|confirmation|check|out|from|정보|타고|내려서|departure|arrival|number|rooms|type|adults|children|payment|policy|property|address|note|please|client|voucher|reference|valid)$/i;
+
+/* 문서 텍스트에서 핵심 명칭 토큰 추출 */
+function extractDocTokens(text){
+  var t=(text||"").toLowerCase();
+  /* 호텔명 패턴: "Property: X", "Hotel: X", 고유명사 2단어+ */
+  var names=[], m;
+  var re=/(?:property|hotel name|hotel|property name|accommodation)[:\s]+([a-z][a-z0-9 &,.\-]{4,50})/gi;
+  while((m=re.exec(text))!==null) names.push(m[1].toLowerCase().trim());
+  /* 이메일 제목에서 호텔명 ("도미인", "crossing" 등) */
+  var re2=/(?:새로운 예약|new booking|your booking|guest at|staying at)[:\s]+([a-z][a-z0-9 &,.\-]{3,40})/gi;
+  while((m=re2.exec(text))!==null) names.push(m[1].toLowerCase().trim());
+  /* 주소 앞 고유명사 (2단어 연속 대문자로 시작) */
+  var re3=/([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){1,4})\s+(?:\d|\d{1,5}\s+[A-Z])/g;
+  while((m=re3.exec(text||""))!==null) names.push(m[1].toLowerCase());
+  return names;
+}
+
 function docMatchItem(trip,text){
   if(!trip) return null;
   var low=(text||"").toLowerCase(), best=null,bestScore=0;
+  var docNames=extractDocTokens(text);
   trip.days.forEach(function(d){
     d.items.forEach(function(it){
       var title=(effective(it).title||"").toLowerCase();
-      var toks=title.split(/[^a-z0-9가-힣ぁ-んァ-ヶ一-龥]+/).filter(function(w){
+      var titleToks=title.split(/[^a-z0-9가-힣ぁ-んァ-ヶ一-龥]+/).filter(function(w){
         if(!w||DOC_STOP.test(w)) return false;
         return /[가-힣]/.test(w)?w.length>=3:w.length>=4;
       });
-      if(toks.length<1) return;
-      var hits=0,score=0,strong=0;
-      toks.forEach(function(w){
+      var score=0,strong=0;
+      /* 방법1: 일정 토큰이 문서에 있는지 */
+      titleToks.forEach(function(w){
         if(low.indexOf(w)>=0){
-          hits++; score+=w.length;
+          score+=w.length;
           if(w.length>=5||(/[가-힣]/.test(w)&&w.length>=4)) strong++;
         }
       });
-      /* 최소 2개 일치 + 충분히 긴 단어 포함 + 총점 8 이상 */
-      if(hits>=2&&strong>=1&&score>=8&&score>bestScore){ bestScore=score; best={item:it,day:d,score:score}; }
+      /* 방법2: 문서에서 추출한 이름이 일정 타이틀에 있는지 (역방향) */
+      docNames.forEach(function(dn){
+        var dnToks=dn.split(/\s+/).filter(function(w){ return w.length>=4&&!DOC_STOP.test(w); });
+        var hit=0;
+        dnToks.forEach(function(w){ if(title.indexOf(w)>=0){ hit++; score+=w.length; strong++; } });
+        if(hit>=2) score+=10; /* 이름 전체 일치 보너스 */
+      });
+      if(strong>=1&&score>=8&&score>bestScore){ bestScore=score; best={item:it,day:d,score:score}; }
+    });
+  });
+  return best;
+}
+/* ── 항공권: 출발도시·편명으로 일정 항목 매칭 ── */
+function airMatchItem(trip,text){
+  if(!trip) return null;
+  var cities=[];
+  var re=/\b(gimpo|haneda|vancouver|calgary|tokyo|incheon|narita|hnd|yvr|yyz|yeg|nrt|hanel|하네다|김포|밴쿠버|캘거리|도쿄|기무포|인천)\b/gi;
+  var m; while((m=re.exec(text||''))!==null) cities.push(m[1].toLowerCase());
+  if(!cities.length) return null;
+  var best=null,bestS=0;
+  trip.days.forEach(function(d){
+    d.items.forEach(function(it){
+      if(it.type!=='flight'&&!/공항|출발|departure/i.test(effective(it).title)) return;
+      var title=(effective(it).title||'').toLowerCase();
+      var hits=0;
+      cities.forEach(function(c){ if(title.indexOf(c)>=0) hits++; });
+      if(/ana\b|all nippon/i.test(text||'')&&/ana/i.test(title)) hits++;
+      if(/air canada/i.test(text||'')&&/air canada|에어캐나다/i.test(title)) hits++;
+      if(hits>bestS){ bestS=hits; best={item:it,day:d,score:hits}; }
+    });
+  });
+  return bestS>=1?best:null;
+}
+/* ── 렌트카: 픽업 날짜+회사명으로 매칭 ── */
+function carMatchItem(trip,text,date){
+  if(!trip) return null;
+  var targetDay=trip.days.find(function(d){ return d.date===date; });
+  if(!targetDay) return null;
+  var best=null;
+  targetDay.items.forEach(function(it){
+    if(/렌트카|rent.*car|rentacar|hertz|avis|budget|sixt|enterprise|national|alamo|dollar/i.test(effective(it).title))
+      best={item:it,day:targetDay,score:3};
+  });
+  if(!best) targetDay.items.forEach(function(it){
+    if(/공항|airport/i.test(effective(it).title)&&/도착|arrival/i.test(effective(it).title))
+      best={item:it,day:targetDay,score:1};
+  });
+  return best;
+}
+/* ── 식당예약: 식당명 매칭 ── */
+function restMatchItem(trip,text){
+  if(!trip) return null;
+  var names=[],m;
+  var re1=/(?:restaurant|레스토랑|dining\s+at|reservation\s+at|table\s+at|at\s+the\s+restaurant)[:\s]+([^\n,]{3,40})/gi;
+  while((m=re1.exec(text||''))!==null) names.push(m[1].toLowerCase().trim());
+  if(!names.length) return null;
+  var best=null,bestS=0;
+  trip.days.forEach(function(d){
+    d.items.forEach(function(it){
+      var title=(effective(it).title||'').toLowerCase();
+      names.forEach(function(nm){
+        var toks=nm.split(/\s+/).filter(function(w){ return w.length>=3; });
+        var hits=toks.filter(function(w){ return title.indexOf(w)>=0; }).length;
+        if(hits>=1&&hits>bestS){ bestS=hits; best={item:it,day:d,score:hits}; }
+      });
     });
   });
   return best;
@@ -837,7 +922,11 @@ function analyzeDoc(text,fileName,trip){
     cand.sort(function(a,b){ return (b.prio-a.prio)||(a.date<b.date?-1:(a.date>b.date?1:0)); });
     chosen=cand[0].date;
   }
-  var mi=docMatchItem(trip,text);
+  var mi=null;
+  if(type.k==="air") mi=airMatchItem(trip,text)||docMatchItem(trip,text);
+  else if(type.k==="car") mi=carMatchItem(trip,text,chosen)||docMatchItem(trip,text);
+  else if(type.k==="rest") mi=restMatchItem(trip,text)||docMatchItem(trip,text);
+  else mi=docMatchItem(trip,text);
   if(!chosen&&mi) chosen=mi.day.date;
   return {type:type,date:chosen,itemId:mi?mi.item.id:"",itemTitle:mi?effective(mi.item).title:""};
 }
@@ -1490,12 +1579,23 @@ function itemHTML(item,dateKey,kind,computedWalk,an){
   if(!an.nav&&an.nearbyLL){
     btns+='<button class="nav-btn nav-t" data-nearbyll="'+esc(an.nearbyLL)+'">🍴 주변 식당 찾기</button>';
   }
+  if(item.type==="flight"){
+    var fDocs=docsFor(null,item.id);
+    if(fDocs.length){
+      var fd=docTypeInfo(fDocs[0].type);
+      btns+='<button class="doc-btn air" data-docopen="'+esc(fDocs[0].id)+'">'+fd.ic+' '+fd.label+(fDocs.length>1?' +'+(fDocs.length-1):'')+'</button>';
+    }
+  }
   if(an.nav&&item.type==="spot"){
     btns+='<button class="info-btn" data-info="'+item.id+'">ℹ️</button>';
     if(t) btns+='<button class="park-btn" data-park="'+item.id+'">🅿</button>';
   }
   var myDocs=docsFor(null,item.id);
-  if(myDocs.length) btns+='<button class="doc-btn" data-docopen="'+esc(myDocs[0].id)+'">📎 '+docTypeInfo(myDocs[0].type).label+(myDocs.length>1?" +"+(myDocs.length-1):"")+'</button>';
+  if(myDocs.length){
+    var dti=docTypeInfo(myDocs[0].type);
+    btns+='<button class="doc-btn '+(myDocs[0].type||'')+'" data-docopen="'+esc(myDocs[0].id)+'">'
+      +dti.ic+' '+dti.label+(myDocs.length>1?' +'+(myDocs.length-1):'')+'</button>';
+  }
   btns+='<button class="edit-btn" data-edit="'+item.id+'">✏️</button>';
   btns+='<button class="del-btn" data-del="'+item.id+'">🗑</button>';
   h+='<div class="btnrow">'+btns+'</div></div>';
