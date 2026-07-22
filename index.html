@@ -197,6 +197,23 @@ section.day{margin-bottom:26px}
 #aiBox.show{padding:12px 14px;max-height:none;overflow:visible}
 #aiBox .ai-src{font-size:11.5px;color:var(--sub);margin-top:8px}
 
+/* ===== v13 문서 지갑 ===== */
+.docchip{cursor:pointer;background:#DFE9F2 !important;color:#2E6DA4 !important}
+.doc-btn{flex:0 0 auto;border:1.5px solid #2E6DA4;background:#E3EDF4;color:#2E6DA4;
+  border-radius:10px;padding:11px 12px;font-size:14px;font-weight:700;cursor:pointer}
+.doc-drop{border:2px dashed var(--line);border-radius:12px;padding:18px 12px;text-align:center;
+  color:var(--sub);font-size:13.5px;font-weight:700;cursor:pointer;margin:10px 0 14px;line-height:1.6}
+.doc-drop:hover{border-color:#2E6DA4;color:#2E6DA4}
+.doc-row{display:flex;align-items:center;gap:9px;background:var(--bg);border:1px solid var(--line);
+  border-radius:12px;padding:9px;margin-bottom:8px}
+.doc-row .ic{font-size:20px;flex:0 0 auto}
+.doc-row .meta{flex:1;min-width:0}
+.doc-row .nm{font-size:14px;font-weight:800;word-break:break-all}
+.doc-row .lb{font-size:11.5px;color:var(--sub);margin-top:2px}
+.doc-row .open{background:#2E6DA4;color:#fff;border:none;border-radius:9px;padding:9px 12px;font-size:13px;font-weight:700;cursor:pointer}
+.doc-row .rm{background:#fff;border:1.5px solid var(--line);color:var(--danger);border-radius:9px;padding:9px 10px;font-size:13px;cursor:pointer}
+.doc-row select{border:1px solid var(--line);border-radius:8px;padding:4px 6px;font-size:11.5px;margin-top:4px;max-width:150px;background:#fff}
+
 /* ===== v12 QR 지갑 ===== */
 .qrchip{cursor:pointer;background:#E7DFF2 !important;color:#5B4B8A !important}
 .qr-add{width:100%;border:1.5px dashed var(--line);background:transparent;color:var(--sub);
@@ -252,6 +269,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
   <div class="triprow">
     <select id="tripSel"></select>
     <button class="hbtn pdf" id="pdfBtn">📄 PDF</button>
+    <button class="hbtn" id="docBtn">📎</button>
     <button class="hbtn" id="qrBtn">🎫</button>
     <button class="hbtn" id="syncBtn">☁</button>
     <button class="hbtn" id="delTripBtn">🗑</button>
@@ -263,7 +281,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v12.2 · 🎫 QR 지갑 · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v13.5 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -287,6 +305,21 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
     </div>
   </div>
 </div>
+
+<!-- 문서(티켓·바우처) 지갑 -->
+<div class="overlay" id="docOverlay">
+  <div class="sheet">
+    <h3>📎 티켓 · 바우처 보관함</h3>
+    <div class="hint" style="margin-top:2px">호텔 바우처·항공권·렌트카 예약증·입장권 PDF를 넣으면 내용을 읽어 <b>해당 날짜 일정에 자동 분류</b>됩니다.</div>
+    <div class="hint" id="docInfo" style="color:#2E6DA4;font-weight:700"></div>
+    <div class="hint" id="docOffline" style="font-weight:700"></div>
+    <div class="doc-drop" id="docDrop">📄 PDF·이미지를 여기로 끌어다 놓거나<br>클릭해서 선택하세요 (여러 개 동시 가능)</div>
+    <div id="docMsg" class="hint"></div>
+    <div id="docList"></div>
+    <button class="close-btn" id="docClose">닫기</button>
+  </div>
+</div>
+<input type="file" id="docFile" accept="application/pdf,image/*" multiple style="display:none">
 
 <!-- QR 지갑 모달 -->
 <div class="overlay" id="qrOverlay">
@@ -676,6 +709,467 @@ function buildDayRoute(day,car,cityMap){
   return {rows:rows,walkKm:walkKm,driveKm:driveKm,driveLegs:driveLegs,transitLegs:transitLegs,spots:spots};
 }
 
+/* ================= v13 티켓·바우처 보관함 ================= */
+var LS_DOCS="wtrip_docs_v13";
+var docsState=loadObj(LS_DOCS,{items:{},del:{}});
+if(!docsState.items) docsState.items={};
+if(!docsState.del) docsState.del={};
+var docsRef=null, docsApplying=false, docsPendingDel=[];
+var DOC_TTL_DAYS=14;
+
+function docsSave(){ try{ save(LS_DOCS,docsState); }catch(e){} }
+
+/* ---- IndexedDB (파일 본체) ---- */
+var IDB_NAME="wtripDocs", IDB_STORE="files";
+function idbOpen(){
+  return new Promise(function(res,rej){
+    var r=indexedDB.open(IDB_NAME,1);
+    r.onupgradeneeded=function(){ if(!r.result.objectStoreNames.contains(IDB_STORE)) r.result.createObjectStore(IDB_STORE); };
+    r.onsuccess=function(){ res(r.result); };
+    r.onerror=function(){ rej(r.error||new Error("IDB open 실패")); };
+  });
+}
+function idbPut(k,v){
+  return idbOpen().then(function(db){ return new Promise(function(res,rej){
+    var tx=db.transaction(IDB_STORE,"readwrite");
+    tx.objectStore(IDB_STORE).put(v,k);
+    tx.oncomplete=function(){ res(); }; tx.onerror=function(){ rej(tx.error); };
+  }); });
+}
+function idbGet(k){
+  return idbOpen().then(function(db){ return new Promise(function(res,rej){
+    var tx=db.transaction(IDB_STORE,"readonly");
+    var q=tx.objectStore(IDB_STORE).get(k);
+    q.onsuccess=function(){ res(q.result||null); }; q.onerror=function(){ rej(q.error); };
+  }); });
+}
+function idbKeys(){
+  return idbOpen().then(function(db){ return new Promise(function(res){
+    var tx=db.transaction(IDB_STORE,"readonly");
+    var q=tx.objectStore(IDB_STORE).getAllKeys();
+    q.onsuccess=function(){ res(q.result||[]); };
+    q.onerror=function(){ res([]); };
+  }); }).catch(function(){ return []; });
+}
+function idbDel(k){
+  return idbOpen().then(function(db){ return new Promise(function(res){
+    var tx=db.transaction(IDB_STORE,"readwrite");
+    tx.objectStore(IDB_STORE).delete(k);
+    tx.oncomplete=function(){ res(); }; tx.onerror=function(){ res(); };
+  }); });
+}
+
+/* ---- PDF 내용 분석 ---- */
+var DOC_MONTHS={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+function extractDates(text){
+  var out=[],m;
+  function push(y,mo,d,idx){
+    if(!y||!mo||!d||mo<1||mo>12||d<1||d>31) return;
+    out.push({date:y+"-"+pad2(mo)+"-"+pad2(d),idx:idx});
+  }
+  var re1=/(\d{4})\s*년[\s년]*(\d{1,2})\s*월[\s월]*(\d{1,2})\s*일/g;
+  while((m=re1.exec(text))!==null) push(+m[1],+m[2],+m[3],m.index);
+  var re2=/(\d{1,2})\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Za-z]*\.?,?\s*(\d{4})/gi;
+  while((m=re2.exec(text))!==null) push(+m[3],DOC_MONTHS[m[2].toLowerCase()],+m[1],m.index);
+  var re3=/(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Za-z]*\.?\s*(\d{1,2})\s*,?\s*(\d{4})/gi;
+  while((m=re3.exec(text))!==null) push(+m[3],DOC_MONTHS[m[1].toLowerCase().slice(0,3)],+m[2],m.index);
+  var re4=/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/g;
+  while((m=re4.exec(text))!==null) push(+m[1],+m[2],+m[3],m.index);
+  return out;
+}
+function datePrio(text,idx){
+  var pre=text.slice(Math.max(0,idx-140),idx).toLowerCase();
+  if(/체크인|arrival|check\s*-?\s*in|valid\s*from|입실|탑승|이용일/.test(pre)) return 3;
+  if(/출발|departure|valid|유효|expires|체크아웃|check\s*-?\s*out/.test(pre)) return 2;
+  return 1;
+}
+function docType(text,name){
+  var t=((text||"")+" "+(name||"")).toLowerCase();
+  function cnt(re){ var m=t.match(re); return m?m.length:0; }
+  var sc={
+    car: cnt(/hertz|avis|budget|sixt|enterprise|rent\s*a\s*car|렌트카|rental\s*car|차량\s*예약|반납\s*지점/g)*3,
+    air: cnt(/e-?ticket|electronic\s*ticket|itinerary\/receipt|airways|airlines|air\s*canada|항공권|passenger\s*ticket|flight\s*no|편명|탑승권/g)*3,
+    hotel: cnt(/booking\s*confirmation|체크인|체크아웃|check\s*-?\s*in|arrival\s*:|호텔|숙소|agoda|booking\.com|hotel|resort|객실|숙박|ドーミーイン|旅館/g)*2,
+    tkt: cnt(/gondola|pursuit|admission|입장권|입장료|attraction|icefield|skywalk|투어|tour\b|valid\s*from|expires|관람권|이용권/g)*2,
+    etc: 0
+  };
+  var best="etc",bv=0;
+  Object.keys(sc).forEach(function(k){ if(sc[k]>bv){ bv=sc[k]; best=k; } });
+  if(bv===0) best="etc";
+  return {hotel:{k:"hotel",ic:"🏨",label:"호텔"},air:{k:"air",ic:"✈️",label:"항공권"},
+          car:{k:"car",ic:"🚗",label:"렌트카"},tkt:{k:"tkt",ic:"🎟",label:"입장권"},
+          etc:{k:"etc",ic:"📎",label:"기타"}}[best];
+}
+var DOC_STOP=/^(호텔|체크인|체크아웃|출발|도착|관광|여행|공항|숙소|예약|완료|필수|지역|시내|에서|여기|저녁|점심|아침|식사|도보|이동|근처|주차|확인|가능|이용|하고|먼저|다른|우니|제철|음식|hotel|the|and|for|with|room|airport|inn|resort|tickets?|adult|booking|reservation|confirmation|check|out|from|정보|타고|내려서)$/i;
+function docMatchItem(trip,text){
+  if(!trip) return null;
+  var low=(text||"").toLowerCase(), best=null,bestScore=0;
+  trip.days.forEach(function(d){
+    d.items.forEach(function(it){
+      var title=(effective(it).title||"").toLowerCase();
+      var toks=title.split(/[^a-z0-9가-힣ぁ-んァ-ヶ一-龥]+/).filter(function(w){
+        if(!w||DOC_STOP.test(w)) return false;
+        return /[가-힣]/.test(w)?w.length>=3:w.length>=4;
+      });
+      if(toks.length<1) return;
+      var hits=0,score=0,strong=0;
+      toks.forEach(function(w){
+        if(low.indexOf(w)>=0){
+          hits++; score+=w.length;
+          if(w.length>=5||(/[가-힣]/.test(w)&&w.length>=4)) strong++;
+        }
+      });
+      /* 최소 2개 일치 + 충분히 긴 단어 포함 + 총점 8 이상 */
+      if(hits>=2&&strong>=1&&score>=8&&score>bestScore){ bestScore=score; best={item:it,day:d,score:score}; }
+    });
+  });
+  return best;
+}
+function analyzeDoc(text,fileName,trip){
+  var type=docType(text,fileName);
+  var ds=extractDates(text||"");
+  ds.forEach(function(d){ d.prio=datePrio(text||"",d.idx); });
+  var inTrip={};
+  if(trip) trip.days.forEach(function(dd){ inTrip[dd.date]=1; });
+  var cand=ds.filter(function(d){ return inTrip[d.date]; });
+  var chosen="";
+  if(cand.length){
+    cand.sort(function(a,b){ return (b.prio-a.prio)||(a.date<b.date?-1:(a.date>b.date?1:0)); });
+    chosen=cand[0].date;
+  }
+  var mi=docMatchItem(trip,text);
+  if(!chosen&&mi) chosen=mi.day.date;
+  return {type:type,date:chosen,itemId:mi?mi.item.id:"",itemTitle:mi?effective(mi.item).title:""};
+}
+
+/* ---- PDF 텍스트 추출 ---- */
+function extractPdfText(file){
+  return loadPdfJs().then(function(){ return file.arrayBuffer(); })
+    .then(function(buf){ return window.pdfjsLib.getDocument({data:buf}).promise; })
+    .then(function(pdf){
+      var n=Math.min(pdf.numPages,4),ps=[];
+      for(var i=1;i<=n;i++) ps.push(pdf.getPage(i));
+      return Promise.all(ps).then(function(pgs){
+        return Promise.all(pgs.map(function(p){ return p.getTextContent(); }));
+      });
+    })
+    .then(function(cs){
+      var t="";
+      cs.forEach(function(c){ c.items.forEach(function(it){ t+=(it.str||"")+" "; }); });
+      return t;
+    })
+    .catch(function(){ return ""; });
+}
+
+/* ---- 저장 ---- */
+function readDataUrl(file){
+  return new Promise(function(res,rej){
+    var fr=new FileReader();
+    fr.onload=function(){ res(fr.result); };
+    fr.onerror=function(){ rej(new Error("파일 읽기 실패")); };
+    fr.readAsDataURL(file);
+  });
+}
+function docAddFile(file){
+  var msg=document.getElementById("docMsg");
+  msg.textContent="📄 "+file.name+" 분석 중…";
+  var isPdf=/pdf/i.test(file.type)||/\.pdf$/i.test(file.name);
+  return (isPdf?extractPdfText(file):Promise.resolve("")).then(function(text){
+    return readDataUrl(file).then(function(dataUrl){
+      var trip=currentTrip();
+      var an=analyzeDoc(text,file.name,trip);
+      var id="d_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
+      docsState.items[id]={
+        id:id, tripId:trip?trip.id:"", name:file.name,
+        type:an.type.k, date:an.date||"", itemId:an.itemId||"",
+        itemTitle:an.itemTitle||"", mime:file.type||"application/pdf",
+        size:dataUrl.length, ts:Date.now()
+      };
+      docsSave();
+      return idbPut(id,dataUrl).then(function(){
+        docLocalSet[id]=1;
+        docsPushOne(id,dataUrl);
+        msg.textContent="✅ "+an.type.ic+" "+an.type.label+" · "
+          +(an.date?an.date+"에 자동 분류":"날짜 미확인 — 아래에서 직접 지정")
+          +(an.itemTitle?(" · "+an.itemTitle.slice(0,18)):"");
+        docRenderList(); render();
+      });
+    });
+  }).catch(function(e){ msg.textContent="⚠ "+e.message; });
+}
+function docHandleFiles(files){
+  var arr=[].slice.call(files||[]);
+  if(!arr.length) return false;
+  var chain=Promise.resolve();
+  arr.forEach(function(f){ chain=chain.then(function(){ return docAddFile(f); }); });
+  return true;
+}
+
+/* ---- 목록 UI ---- */
+var docOverlay=document.getElementById("docOverlay");
+function docTypeInfo(k){
+  return {hotel:{ic:"🏨",label:"호텔"},air:{ic:"✈️",label:"항공권"},car:{ic:"🚗",label:"렌트카"},
+          tkt:{ic:"🎟",label:"입장권"},etc:{ic:"📎",label:"기타"}}[k]||{ic:"📎",label:"기타"};
+}
+function docsFor(date,itemId){
+  return Object.keys(docsState.items).map(function(k){ return docsState.items[k]; })
+    .filter(function(d){
+      if(itemId) return d.itemId===itemId;
+      if(date) return d.date===date;
+      return true;
+    })
+    .sort(function(a,b){ return (a.date||"9")<(b.date||"9")?-1:1; });
+}
+function docRenderList(){
+  var el=document.getElementById("docList");
+  var all=docsFor(null,null);
+  if(!all.length){
+    el.innerHTML='<div class="qr-empty">저장된 티켓·바우처가 없습니다.<br>PDF를 끌어다 놓으면 내용을 읽어 날짜별로 자동 정리합니다.</div>';
+    return;
+  }
+  var trip=currentTrip(),opts="";
+  if(trip) trip.days.forEach(function(d){ opts+='<option value="'+esc(d.date)+'">'+esc(d.label)+'</option>'; });
+  var h="";
+  all.forEach(function(d){
+    var ti=docTypeInfo(d.type);
+    h+='<div class="doc-row">'
+      +'<span class="ic">'+ti.ic+'</span>'
+      +'<div class="meta"><div class="nm">'+esc(d.name.replace(/\.(pdf|png|jpe?g)$/i,"").slice(0,42))+'</div>'
+      +'<div class="lb">'+ti.label+' · '+(d.date?esc(d.date):'날짜 미확인')
+      +(d.itemTitle?' · '+esc(d.itemTitle.slice(0,16)):'')+' · '+Math.round(d.size/1024)+'KB · '
+      +(docLocalSet[d.id]?'<span style="color:#3E7C4F;font-weight:800">✔ 오프라인 OK</span>'
+                         :'<span style="color:#B04A3A;font-weight:800">☁ 미다운로드</span>')+'</div>'
+      +'<select data-docdate="'+esc(d.id)+'"><option value="">날짜 변경…</option>'+opts+'</select>'
+      +'</div>'
+      +'<button class="open" data-docopen="'+esc(d.id)+'">보기</button>'
+      +'<button class="rm" data-docdel="'+esc(d.id)+'">🗑</button>'
+      +'</div>';
+  });
+  el.innerHTML=h;
+}
+function docOpenWallet(date){
+  docsPurge();
+  docRenderList();
+  refreshLocalSet(function(){
+    docRenderList();
+    docUpdateOfflineBar();
+    docPrefetchAll(true);
+  });
+  var n=Object.keys(docsState.items).length,kb=0;
+  Object.keys(docsState.items).forEach(function(k){ kb+=docsState.items[k].size||0; });
+  kb=Math.round(kb/1024);
+  document.getElementById("docInfo").textContent="보관 "+n+"개 · "+(kb>1024?(kb/1024).toFixed(1)+"MB":kb+"KB")
+    +" · 여행 종료 +"+DOC_TTL_DAYS+"일 후 자동 삭제";
+  document.getElementById("docMsg").textContent="";
+  docOverlay.classList.add("show");
+}
+function docOpen(id){
+  var w=window.open("","_blank"); /* 팝업 차단 회피: 클릭 시점에 미리 열기 */
+  idbGet(id).then(function(dataUrl){
+    if(!dataUrl&&docsRef){
+      return docsRef.child("files/"+id).once("value").then(function(s){
+        var v=s.val();
+        if(v) return idbPut(id,v).then(function(){ return v; });
+        return null;
+      });
+    }
+    return dataUrl;
+  }).then(function(dataUrl){
+    if(!dataUrl){ if(w) w.close(); alert("파일을 찾을 수 없습니다. 다른 기기에서 동기화 중일 수 있어요."); return; }
+    var parts=dataUrl.split(","),mime=(/data:([^;]+)/.exec(parts[0])||[])[1]||"application/pdf";
+    var bin=atob(parts[1]),len=bin.length,u8=new Uint8Array(len);
+    for(var i=0;i<len;i++) u8[i]=bin.charCodeAt(i);
+    var url=URL.createObjectURL(new Blob([u8],{type:mime}));
+    if(w) w.location=url; else window.open(url,"_blank");
+  }).catch(function(){ if(w) w.close(); alert("열기에 실패했습니다"); });
+}
+function docFirebaseDel(id,ts){
+  if(!docsRef) return;
+  try{
+    docsRef.child("meta/"+id).remove();
+    docsRef.child("files/"+id).remove();
+    docsRef.child("del/"+id).set(ts||Date.now());
+  }catch(e){}
+}
+function docDelete(id){
+  var ts=Date.now();
+  delete docsState.items[id];
+  docsState.del[id]=ts;
+  docsSave(); idbDel(id);
+  if(docsRef) docFirebaseDel(id,ts);
+  else docsPendingDel.push({k:id,ts:ts}); /* 오프라인 삭제 → 연결 시 반영 */
+  docRenderList(); render();
+}
+
+/* ---- 오프라인 보유 상태 ---- */
+var docLocalSet={};
+function refreshLocalSet(cb){
+  idbKeys().then(function(keys){
+    docLocalSet={};
+    keys.forEach(function(k){ docLocalSet[k]=1; });
+    if(cb) cb();
+  });
+}
+function docsMissingLocal(){
+  return Object.keys(docsState.items).filter(function(k){ return !docLocalSet[k]; });
+}
+/* 자동 일괄 다운로드 (백그라운드) — 앱을 열어두기만 하면 전부 저장됨 */
+var prefetchRunning=false, prefetchTried={};
+function docPrefetchAll(silent){
+  if(!docsRef||prefetchRunning) return;
+  var miss=Object.keys(docsState.items).filter(function(k){ return !docLocalSet[k]; });
+  if(!miss.length){
+    if(!silent) status("✔ 티켓·바우처 전부 이 기기에 저장됨 (오프라인 OK)");
+    return;
+  }
+  prefetchRunning=true;
+  var i=0, ok=0, fail=[];
+  function finish(){
+    prefetchRunning=false;
+    refreshLocalSet(function(){
+      if(fail.length) status("⚠ 바우처 "+fail.length+"개 미완료 — 인터넷 연결 시 자동 재시도");
+      else status("✔ 티켓·바우처 "+ok+"개 오프라인 준비 완료");
+      if(docOverlay.classList.contains("show")){
+        docRenderList();
+        docUpdateOfflineBar();
+      }
+    });
+  }
+  function next(){
+    if(i>=miss.length){ finish(); return; }
+    var k=miss[i++];
+    status("⬇ 티켓·바우처 내려받는 중… "+i+"/"+miss.length);
+    var tries=(prefetchTried[k]||0)+1; prefetchTried[k]=tries;
+    docsRef.child("files/"+k).once("value").then(function(s){
+      var v=s.val();
+      if(!v){ fail.push(k); next(); return; }
+      idbPut(k,v).then(function(){ docLocalSet[k]=1; ok++; next(); })
+                 .catch(function(){ fail.push(k); next(); });
+    }).catch(function(){ fail.push(k); next(); });
+  }
+  next();
+}
+
+/* 이 기기에 없는 문서를 서버에서 모두 내려받기 (수동 버튼) */
+function docsDownloadAll(){
+  var msg=document.getElementById("docMsg");
+  if(!docsRef){ msg.textContent="⚠ 동기화(☁)가 연결돼 있어야 내려받을 수 있습니다"; return; }
+  msg.textContent="⬇ 내려받는 중… 진행 상황은 상단에 표시됩니다";
+  prefetchTried={};
+  docPrefetchAll(false);
+}
+
+/* 오프라인 준비 상태 바 갱신 */
+function docUpdateOfflineBar(){
+  var st=document.getElementById("docOffline");
+  if(!st) return;
+  var miss=docsMissingLocal().length;
+  st.innerHTML=miss
+    ? '⚠ 이 기기에 없는 문서 '+miss+'개 — 자동으로 받는 중입니다 <button id="docDlBtn" style="margin-left:6px;background:#2E6DA4;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer">📥 지금 받기</button>'
+    : '✔ 모든 문서가 이 기기에 저장됨 — 인터넷 없이도 열립니다';
+  st.style.color=miss?"#B04A3A":"#3E7C4F";
+  var b=document.getElementById("docDlBtn");
+  if(b) b.addEventListener("click",docsDownloadAll);
+}
+
+/* ---- 자동 삭제: 여행 마지막 날 +7일 ---- */
+function addDaysStr(dateStr,n){
+  var p=String(dateStr).split("-");
+  var d=new Date(+p[0],+p[1]-1,+p[2]+n);
+  return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
+}
+function docsPurge(){
+  var lastOf={};
+  trips.forEach(function(t){
+    var last="";
+    t.days.forEach(function(d){ if(d.date>last) last=d.date; });
+    lastOf[t.id]=last;
+  });
+  var expired=[], ts=Date.now();
+  Object.keys(docsState.items).forEach(function(k){
+    var m=docsState.items[k];
+    var last=lastOf[m.tripId];
+    if(!last) return;
+    if(addDaysStr(last,DOC_TTL_DAYS)<todayStr){
+      /* 로컬에서 먼저 삭제 */
+      delete docsState.items[k];
+      docsState.del[k]=ts;
+      idbDel(k);
+      expired.push({k:k,ts:ts});
+    }
+  });
+  if(expired.length){
+    expired.forEach(function(e){ docsPendingDel.push(e); });
+    docsSave(); render();
+  }
+  docsFlushPendingDel(); /* 연결돼 있으면 즉시, 아니면 다음 연결 때 */
+  return expired.length;
+}
+/* 미처리 삭제를 Firebase에 반영 (sync 연결 직후·삭제 발생 시 호출) */
+function docsFlushPendingDel(){
+  if(!docsRef||!docsPendingDel.length) return;
+  var list=docsPendingDel.slice();
+  docsPendingDel=[];
+  list.forEach(function(e){ docFirebaseDel(e.k,e.ts); });
+}
+
+/* ---- 동기화 (docs/{code}) ---- */
+function docsPushOne(id,dataUrl){
+  if(!docsRef||docsApplying) return;
+  try{
+    docsRef.child("meta/"+id).set(JSON.parse(JSON.stringify(docsState.items[id])));
+    if(dataUrl) docsRef.child("files/"+id).set(dataUrl);
+  }catch(e){}
+}
+function docsStartSync(db,code){
+  docsRef=db.ref("docs/"+code);
+  docsFlushPendingDel(); /* 오프라인 중 삭제·만료된 항목을 Firebase에 반영 */
+  docsPurge();           /* 연결 시점 기준으로 한 번 더 정리 */
+  docsRef.child("del").on("value",function(s){
+    var d=s.val()||{};
+    Object.keys(d).forEach(function(k){
+      if(!docsState.del[k]) docsState.del[k]=d[k];
+      if(docsState.items[k]){ delete docsState.items[k]; idbDel(k); }
+    });
+    docsSave();
+  },function(){});
+  docsRef.child("meta").on("value",function(s){
+    var m=s.val()||{};
+    docsApplying=true;
+    var mine=[];
+    Object.keys(m).forEach(function(k){
+      if(docsState.del[k]) return;
+      if(!docsState.items[k]||(m[k].ts||0)>(docsState.items[k].ts||0)) docsState.items[k]=m[k];
+    });
+    Object.keys(docsState.items).forEach(function(k){ if(!m[k]&&!docsState.del[k]) mine.push(k); });
+    docsApplying=false;
+    docsSave();
+    if(docOverlay.classList.contains("show")) docRenderList();
+    render();
+    /* 내 기기에만 있는 문서 업로드 */
+    mine.forEach(function(k){ idbGet(k).then(function(v){ if(v) docsPushOne(k,v); }); });
+    /* 파일 없는 문서 자동 내려받기 */
+    refreshLocalSet(function(){ docPrefetchAll(true); });
+  },function(){});
+}
+
+/* ---- 이벤트 ---- */
+document.getElementById("docBtn").addEventListener("click",function(){ docOpenWallet(null); });
+document.getElementById("docClose").addEventListener("click",function(){ docOverlay.classList.remove("show"); });
+docOverlay.addEventListener("click",function(ev){ if(ev.target===docOverlay) docOverlay.classList.remove("show"); });
+document.getElementById("docDrop").addEventListener("click",function(){ document.getElementById("docFile").click(); });
+document.getElementById("docFile").addEventListener("change",function(ev){
+  if(ev.target.files&&ev.target.files.length) docHandleFiles(ev.target.files);
+  ev.target.value="";
+});
+document.addEventListener("change",function(ev){
+  var s=ev.target;
+  if(s&&s.dataset&&s.dataset.docdate&&s.value){
+    var d=docsState.items[s.dataset.docdate];
+    if(d){ d.date=s.value; d.ts=Date.now(); docsSave(); docsPushOne(d.id,null); docRenderList(); render(); }
+  }
+});
+
 /* ================= v12 QR 지갑 ================= */
 var LS_QR="wtrip_qr_v12";
 var qrState=loadObj(LS_QR,{items:{},del:{}});
@@ -924,6 +1418,7 @@ function qrPush(){
 }
 function qrStartSync(db,code){
   qrRef=db.ref("qr/"+code);
+  qrPurgeExpired(); /* 연결 시점 기준 재정리 (qrPush로 서버 반영) */
   qrRef.on("value",function(snap){
     var v=snap.val();
     if(!v){ qrPush(); return; }
@@ -940,6 +1435,8 @@ function qrStartSync(db,code){
       if(qrState.del[k]){ delete qrState.items[k]; return; }
       if(!rItems[k]) mine=true;
     });
+    /* 내가 지운 QR이 서버에 아직 남아 있으면 삭제 반영 필요 */
+    Object.keys(qrState.del).forEach(function(k){ if(rItems[k]) mine=true; });
     qrLastTs=v.updatedAt;
     qrApplying=false;
     qrSave();
@@ -997,6 +1494,8 @@ function itemHTML(item,dateKey,kind,computedWalk,an){
     btns+='<button class="info-btn" data-info="'+item.id+'">ℹ️</button>';
     if(t) btns+='<button class="park-btn" data-park="'+item.id+'">🅿</button>';
   }
+  var myDocs=docsFor(null,item.id);
+  if(myDocs.length) btns+='<button class="doc-btn" data-docopen="'+esc(myDocs[0].id)+'">📎 '+docTypeInfo(myDocs[0].type).label+(myDocs.length>1?" +"+(myDocs.length-1):"")+'</button>';
   btns+='<button class="edit-btn" data-edit="'+item.id+'">✏️</button>';
   btns+='<button class="del-btn" data-del="'+item.id+'">🗑</button>';
   h+='<div class="btnrow">'+btns+'</div></div>';
@@ -1059,6 +1558,7 @@ function render(){
       +'<span class="d">'+esc(day.label)+'</span>'
       +(isToday?'<span class="todaybadge">오늘</span>':"")
       +(qrCountForDate(day.date)?'<span class="chips qrchip" data-qrdate="'+esc(day.date)+'">🎫 QR '+qrCountForDate(day.date)+'</span>':"")
+      +(docsFor(day.date,null).length?'<span class="chips docchip" data-docdate2="'+esc(day.date)+'">📎 '+docsFor(day.date,null).length+'</span>':"")
       +'<span class="chips">'+chips+'</span>'
       +'<span class="foldarrow">▾</span>'
       +'</div><div class="items">';
@@ -1297,8 +1797,17 @@ function handlePdf(file){
     contents.forEach(function(tc){ lines=lines.concat(pageToLines(tc)); });
     var tripId="u_"+Date.now();
     var parsed=parseItinerary(lines,tripId);
-    if(parsed.days.length===0){
-      status("⚠ 날짜(예: 10/8)를 찾지 못했습니다. PDF 형식을 확인해주세요.");
+    /* 일정표처럼 보이지 않으면 티켓·바우처로 분류 */
+    var timed=0;
+    parsed.days.forEach(function(d){ d.items.forEach(function(it){ if(it.time&&it.time!=="—") timed++; }); });
+    if(parsed.days.length<2||timed<5){
+      if(confirm("일정표 형식이 아닙니다.\n티켓·바우처로 보관함에 저장할까요?")){
+        status("📎 보관함에 저장 중…");
+        docOpenWallet(null);
+        docAddFile(file);
+      }else{
+        status("⚠ 취소됨 — 일정표는 '날짜 + 시간 일정' 형식이어야 합니다");
+      }
       return;
     }
     var name=(parsed.nameLine||file.name.replace(/\.pdf$/i,"")).slice(0,40);
@@ -1347,9 +1856,11 @@ document.getElementById("pdfInput").addEventListener("change",function(ev){
     depth++;
     var box=zone.querySelector(".box");
     if(box){
-      box.innerHTML=document.getElementById("qrOverlay").classList.contains("show")
+      box.innerHTML=document.getElementById("docOverlay").classList.contains("show")
+        ? '📎 티켓·바우처를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">내용을 읽어 날짜별로 자동 분류합니다</span>'
+        : (document.getElementById("qrOverlay").classList.contains("show")
         ? '🎫 QR 이미지를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">여러 장을 한 번에 놓으면 순서대로 이름을 물어봅니다</span>'
-        : '📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span>';
+        : '📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표면 일정 등록, 바우처면 보관함으로</span>');
     }
     zone.classList.add("show");
   });
@@ -1367,6 +1878,11 @@ document.getElementById("pdfInput").addEventListener("change",function(ev){
     if(!files||!files.length) return;
     var f=files[0];
     var isImg=/^image\//.test(f.type)||/\.(png|jpe?g|webp|gif|heic)$/i.test(f.name);
+    /* 문서 보관함이 열려 있으면 무조건 문서로 */
+    if(document.getElementById("docOverlay").classList.contains("show")){
+      docHandleFiles(files);
+      return;
+    }
     /* QR 지갑이 열려 있고 이미지 → QR로 저장 */
     if(isImg&&document.getElementById("qrOverlay").classList.contains("show")){
       qrHandleFiles(files);
@@ -1854,6 +2370,7 @@ function startSync(){
       status("⚠ 동기화 오류: "+err.message+" (DB 규칙 확인 필요)");
     });
     qrStartSync(fbdb,syncCode);
+    docsStartSync(fbdb,syncCode);
     status(syncStatusText());
   }).catch(function(e){ status("⚠ "+e.message); });
 }
@@ -1981,15 +2498,21 @@ document.getElementById("saveBtn").addEventListener("click",function(){
 
 /* ================= 이벤트 위임 ================= */
 document.body.addEventListener("click",function(ev){
-  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll],[data-qrdate],[data-qropen],[data-qrdel]");
+  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll],[data-qrdate],[data-qropen],[data-qrdel],[data-docdate2],[data-docopen],[data-docdel]");
   if(!el) return;
+  if(el.dataset.docdate2){ docOpenWallet(el.dataset.docdate2); return; }
+  if(el.dataset.docopen){ docOpen(el.dataset.docopen); return; }
+  if(el.dataset.docdel){
+    if(!confirm("이 문서를 삭제할까요?")) return;
+    docDelete(el.dataset.docdel); return;
+  }
   if(el.dataset.qrdate){ qrOpenWallet(el.dataset.qrdate); return; }
   if(el.dataset.qropen){ qrShow(el.dataset.qropen); return; }
   if(el.dataset.qrdel){
     if(!confirm("이 QR을 삭제할까요?")) return;
     var qid=el.dataset.qrdel;
     delete qrState.items[qid]; qrState.del[qid]=Date.now();
-    qrSave(); qrPush(); qrRenderList(); render();
+    qrSave(); qrPush(); qrRenderList(); render(); /* qrPush가 del 포함해 Firebase 전체 덮어씀 */
     return;
   }
   if(el.dataset.park){
@@ -2070,8 +2593,19 @@ render();
   if(sec) setTimeout(function(){ sec.scrollIntoView({block:"start"}); },100);
 })();
 
-qrPurgeExpired(); /* 30일 지난 QR 자동 삭제 */
-if(syncCode) startSync();
+/* 앱으로 돌아올 때마다 미완료 파일 자동 재시도 */
+document.addEventListener("visibilitychange",function(){
+  if(!document.hidden&&docsRef) refreshLocalSet(function(){ docPrefetchAll(true); });
+});
+
+/* 브라우저가 저장 공간을 임의로 비우지 않도록 영구 보존 요청 */
+if(navigator.storage&&navigator.storage.persist){
+  navigator.storage.persisted().then(function(p){ if(!p) return navigator.storage.persist(); }).catch(function(){});
+}
+refreshLocalSet();
+qrPurgeExpired(); /* QR: 날짜 +30일 경과 시 자동 삭제 */
+docsPurge();      /* 문서: 여행 종료 +14일 경과 시 자동 삭제 */
+if(syncCode) startSync(); /* 연결되면 Firebase 쪽 삭제도 자동 반영 */
 
 if("serviceWorker" in navigator){
   navigator.serviceWorker.register("./sw.js").catch(function(){});
