@@ -281,7 +281,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v13.5 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v14 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -806,65 +806,60 @@ function docType(text,name){
 }
 var DOC_STOP=/^(호텔|체크인|체크아웃|출발|도착|관광|여행|공항|숙소|예약|완료|필수|지역|시내|에서|여기|저녁|점심|아침|식사|도보|이동|근처|주차|확인|가능|이용|하고|먼저|다른|우니|제철|음식|hotel|the|and|for|with|room|airport|inn|resort|tickets?|adult|booking|reservation|confirmation|check|out|from|정보|타고|내려서|departure|arrival|number|rooms|type|adults|children|payment|policy|property|address|note|please|client|voucher|reference|valid)$/i;
 
-/* 문서 텍스트에서 핵심 명칭 토큰 추출 */
+/* 문서 텍스트에서 핵심 명칭 추출 */
 function extractDocTokens(text){
-  var t=(text||"").toLowerCase();
-  /* 호텔명 패턴: "Property: X", "Hotel: X", 고유명사 2단어+ */
   var names=[], m;
+  /* Property/Hotel: 다음 이름 */
   var re=/(?:property|hotel name|hotel|property name|accommodation)[:\s]+([a-z][a-z0-9 &,.\-]{4,50})/gi;
-  while((m=re.exec(text))!==null) names.push(m[1].toLowerCase().trim());
-  /* 이메일 제목에서 호텔명 ("도미인", "crossing" 등) */
-  var re2=/(?:새로운 예약|new booking|your booking|guest at|staying at)[:\s]+([a-z][a-z0-9 &,.\-]{3,40})/gi;
-  while((m=re2.exec(text))!==null) names.push(m[1].toLowerCase().trim());
-  /* 주소 앞 고유명사 (2단어 연속 대문자로 시작) */
-  var re3=/([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){1,4})\s+(?:\d|\d{1,5}\s+[A-Z])/g;
-  while((m=re3.exec(text||""))!==null) names.push(m[1].toLowerCase());
+  while((m=re.exec(text||''))!==null) names.push(m[1].toLowerCase().trim());
+  /* 주소 앞 고유명사 */
+  var re2=/([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){1,4})\s+(?:\d{1,5}\s+[A-Z]|\d{3,})/g;
+  while((m=re2.exec(text||''))!==null) names.push(m[1].toLowerCase());
   return names;
 }
 
 function docMatchItem(trip,text){
   if(!trip) return null;
-  var low=(text||"").toLowerCase(), best=null,bestScore=0;
+  var low=(text||'').toLowerCase(), best=null,bestScore=0;
   var docNames=extractDocTokens(text);
   trip.days.forEach(function(d){
     d.items.forEach(function(it){
-      var title=(effective(it).title||"").toLowerCase();
-      var titleToks=title.split(/[^a-z0-9가-힣ぁ-んァ-ヶ一-龥]+/).filter(function(w){
+      var title=(effective(it).title||'').toLowerCase();
+      var titleToks=title.split(/[^a-z0-9가-힣]+/).filter(function(w){
         if(!w||DOC_STOP.test(w)) return false;
         return /[가-힣]/.test(w)?w.length>=3:w.length>=4;
       });
       var score=0,strong=0;
-      /* 방법1: 일정 토큰이 문서에 있는지 */
       titleToks.forEach(function(w){
         if(low.indexOf(w)>=0){
           score+=w.length;
           if(w.length>=5||(/[가-힣]/.test(w)&&w.length>=4)) strong++;
         }
       });
-      /* 방법2: 문서에서 추출한 이름이 일정 타이틀에 있는지 (역방향) */
       docNames.forEach(function(dn){
         var dnToks=dn.split(/\s+/).filter(function(w){ return w.length>=4&&!DOC_STOP.test(w); });
         var hit=0;
         dnToks.forEach(function(w){ if(title.indexOf(w)>=0){ hit++; score+=w.length; strong++; } });
-        if(hit>=2) score+=10; /* 이름 전체 일치 보너스 */
+        if(hit>=2) score+=10;
       });
       if(strong>=1&&score>=8&&score>bestScore){ bestScore=score; best={item:it,day:d,score:score}; }
     });
   });
   return best;
 }
-/* ── 항공권: 출발도시·편명으로 일정 항목 매칭 ── */
+
+/* ── 항공권: 출발도시로 일정 편명 매칭 ── */
 function airMatchItem(trip,text){
   if(!trip) return null;
-  var cities=[];
-  var re=/\b(gimpo|haneda|vancouver|calgary|tokyo|incheon|narita|hnd|yvr|yyz|yeg|nrt|hanel|하네다|김포|밴쿠버|캘거리|도쿄|기무포|인천)\b/gi;
-  var m; while((m=re.exec(text||''))!==null) cities.push(m[1].toLowerCase());
+  var cities=[], m;
+  var re=/\b(gimpo|haneda|vancouver|calgary|tokyo|incheon|narita|하네다|김포|밴쿠버|캘거리|도쿄|인천)\b/gi;
+  while((m=re.exec(text||''))!==null) cities.push(m[1].toLowerCase());
   if(!cities.length) return null;
   var best=null,bestS=0;
   trip.days.forEach(function(d){
     d.items.forEach(function(it){
-      if(it.type!=='flight'&&!/공항|출발|departure/i.test(effective(it).title)) return;
       var title=(effective(it).title||'').toLowerCase();
+      if(it.type!=='flight'&&!/공항|출발|departure/i.test(title)) return;
       var hits=0;
       cities.forEach(function(c){ if(title.indexOf(c)>=0) hits++; });
       if(/ana\b|all nippon/i.test(text||'')&&/ana/i.test(title)) hits++;
@@ -874,14 +869,27 @@ function airMatchItem(trip,text){
   });
   return bestS>=1?best:null;
 }
-/* ── 렌트카: 픽업 날짜+회사명으로 매칭 ── */
+
+/* ── 렌트카: 픽업날짜 or 차량키워드+날짜로 매칭 ── */
+function carPickupDate(text){
+  /* 렌트카 문서에서 픽업 날짜 우선 추출 */
+  var m;
+  var re1=/(?:pick.?up|출발|시작일)[^\n]*?(\d{4}[-\/]\d{1,2}[-\/]\d{1,2}|\d{1,2}\s*(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s*\d{4})/gi;
+  while((m=re1.exec(text||''))!==null){
+    var ds=extractDates(m[1]);
+    if(ds.length) return ds[0].date;
+  }
+  return null;
+}
 function carMatchItem(trip,text,date){
   if(!trip) return null;
-  var targetDay=trip.days.find(function(d){ return d.date===date; });
+  /* 픽업 날짜 우선 사용 */
+  var pd=carPickupDate(text)||date;
+  var targetDay=pd?trip.days.find(function(d){ return d.date===pd; }):null;
   if(!targetDay) return null;
   var best=null;
   targetDay.items.forEach(function(it){
-    if(/렌트카|rent.*car|rentacar|hertz|avis|budget|sixt|enterprise|national|alamo|dollar/i.test(effective(it).title))
+    if(/렌트카|rent.*car|rentacar|hertz|avis|budget|sixt|enterprise|national|alamo|dollar|thrifty/i.test(effective(it).title))
       best={item:it,day:targetDay,score:3};
   });
   if(!best) targetDay.items.forEach(function(it){
@@ -890,11 +898,12 @@ function carMatchItem(trip,text,date){
   });
   return best;
 }
+
 /* ── 식당예약: 식당명 매칭 ── */
 function restMatchItem(trip,text){
   if(!trip) return null;
-  var names=[],m;
-  var re1=/(?:restaurant|레스토랑|dining\s+at|reservation\s+at|table\s+at|at\s+the\s+restaurant)[:\s]+([^\n,]{3,40})/gi;
+  var names=[], m;
+  var re1=/(?:restaurant|레스토랑|dining at|reservation at|table at)[:\s]+([^\n,]{3,40})/gi;
   while((m=re1.exec(text||''))!==null) names.push(m[1].toLowerCase().trim());
   if(!names.length) return null;
   var best=null,bestS=0;
@@ -910,6 +919,20 @@ function restMatchItem(trip,text){
   });
   return best;
 }
+
+/* ── 호텔: 텍스트 없는 경우 체크인 날짜로만 매칭 (도미인 등 Gmail PDF) ── */
+function hotelDateMatchItem(trip,date){
+  if(!trip||!date) return null;
+  var targetDay=trip.days.find(function(d){ return d.date===date; });
+  if(!targetDay) return null;
+  var best=null;
+  targetDay.items.forEach(function(it){
+    if(it.type==='hotel'||/호텔|숙소|체크인|hotel|resort|inn\b/i.test(effective(it).title))
+      best={item:it,day:targetDay,score:2};
+  });
+  return best;
+}
+
 function analyzeDoc(text,fileName,trip){
   var type=docType(text,fileName);
   var ds=extractDates(text||"");
@@ -927,6 +950,8 @@ function analyzeDoc(text,fileName,trip){
   else if(type.k==="car") mi=carMatchItem(trip,text,chosen)||docMatchItem(trip,text);
   else if(type.k==="rest") mi=restMatchItem(trip,text)||docMatchItem(trip,text);
   else mi=docMatchItem(trip,text);
+  /* 호텔: 텍스트 매칭 실패해도 체크인 날짜로 호텔 항목 연결 (도미인 등 Gmail PDF 대응) */
+  if(!mi&&type.k==="hotel"&&chosen) mi=hotelDateMatchItem(trip,chosen);
   if(!chosen&&mi) chosen=mi.day.date;
   return {type:type,date:chosen,itemId:mi?mi.item.id:"",itemTitle:mi?effective(mi.item).title:""};
 }
@@ -998,7 +1023,8 @@ function docHandleFiles(files){
 var docOverlay=document.getElementById("docOverlay");
 function docTypeInfo(k){
   return {hotel:{ic:"🏨",label:"호텔"},air:{ic:"✈️",label:"항공권"},car:{ic:"🚗",label:"렌트카"},
-          tkt:{ic:"🎟",label:"입장권"},etc:{ic:"📎",label:"기타"}}[k]||{ic:"📎",label:"기타"};
+          tkt:{ic:"🎟",label:"입장권"},rest:{ic:"🍽",label:"식당예약"},
+          etc:{ic:"📎",label:"기타"}}[k]||{ic:"📎",label:"기타"};
 }
 function docsFor(date,itemId){
   return Object.keys(docsState.items).map(function(k){ return docsState.items[k]; })
@@ -1584,6 +1610,14 @@ function itemHTML(item,dateKey,kind,computedWalk,an){
     if(fDocs.length){
       var fd=docTypeInfo(fDocs[0].type);
       btns+='<button class="doc-btn air" data-docopen="'+esc(fDocs[0].id)+'">'+fd.ic+' '+fd.label+(fDocs.length>1?' +'+(fDocs.length-1):'')+'</button>';
+    }
+  }
+  /* 비행편 카드에도 항공권 PDF 버튼 */
+  if(item.type==="flight"){
+    var fDocs=docsFor(null,item.id);
+    if(fDocs.length){
+      var fd2=docTypeInfo(fDocs[0].type);
+      btns+='<button class="doc-btn air" data-docopen="'+esc(fDocs[0].id)+'">'+fd2.ic+' '+fd2.label+(fDocs.length>1?' +'+(fDocs.length-1):'')+'</button>';
     }
   }
   if(an.nav&&item.type==="spot"){
