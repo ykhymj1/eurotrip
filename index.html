@@ -281,7 +281,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v15 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v16 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -797,7 +797,7 @@ function docType(text,name){
   function cnt(re){ var m=t.match(re); return m?m.length:0; }
   function cntRaw(re){ var m=raw.match(re); return m?m.length:0; }
   var sc={
-    car: cnt(/hertz|avis|budget|sixt|enterprise|national\s*car|alamo|dollar\s*rent|thrifty|europcar|rent\s*a\s*car|rentacar|렌트카|렌터카|rental\s*car|차량\s*예약|픽업\s*일시|반납\s*일시|대여\s*일시|vehicle\s*class|pick.?up\s*location/g)*3,
+    car: cnt(/hertz|avis|budget|sixt|enterprise|national\s*car|alamo|dollar\s*rent|thrifty|europcar|rent\s*a\s*car|rentacar|렌트카|렌터카|rental\s*car|차량\s*예약|픽업\s*일시|반납\s*일시|대여\s*일시|vehicle\s*class|pick.?up\s*location/g)*3+cntRaw(/レンタカー|貸出日時|返却日時|タイムズ|オリックス|トヨタレンタ|ニッポンレンタカー|日産レンタ|車両クラス/g)*3,
     air: cnt(/e-?ticket|electronic\s*ticket|itinerary.{0,6}receipt|airways|airlines|air\s*canada|all\s*nippon|항공권|passenger\s*ticket|flight\s*no|편명|탑승권|boarding\s*pass|pnr/g)*3,
     hotel: cnt(/booking\s*confirmation|voucher|체크인|arrival\s*:|departure\s*:/g)*3
            +cnt(/호텔|숙소|agoda|booking\.com|hotel|resort|객실|숙박|inn\b|number\s*of\s*rooms|room\s*type|guest\s*name/g)*2
@@ -835,19 +835,22 @@ function docKeywords(text,name){
 /* 문서 종류가 이 일정 항목에 어울리는지 */
 function docTypeFitsItem(type,item,title){
   var isCheckout=/체크\s*아웃|check\s*-?\s*out/i.test(title);
-  var isRental=/렌트카|렌터카|rent\s*a?\s*car|rentacar|hertz|avis|budget|sixt|enterprise|national|alamo|dollar|thrifty/i.test(title);
+  var isRental=/렌트카|렌터카|rent\s*a?\s*car|rentacar|hertz|avis|budget|sixt|enterprise|national|alamo|dollar|thrifty|レンタカー/i.test(title);
   var isHotelItem=(item.type==="hotel")||/호텔|숙소|hotel|resort|inn\b|리조트|체크인/i.test(title);
   if(type==="car") return isRental;
   if(type==="air"){
     if(isRental||isCheckout||isHotelItem) return false;
-    return item.type==="flight"||/공항|airport|terminal|터미널/i.test(title);
+    /* 실제 비행기를 타는 순간 = 공항/터미널/항공사 + '출발' (단, '~으로/에서 출발'은 이동일 뿐) */
+    if(!/출발/.test(title)) return false;
+    if(/으로\s*출발|에서\s*출발/.test(title)) return false;
+    return /공항|airport|terminal|터미널|항공|airlines?|air\s*canada|ana\b/i.test(title);
   }
   if(type==="hotel"){
     if(isCheckout||isRental) return false;
     return isHotelItem;
   }
   if(type==="rest") return /식당|레스토랑|restaurant|점심|저녁|아침|dining|맛집|스시|초밥|이자카야|시장/i.test(title);
-  if(type==="tkt") return !isCheckout&&!isRental;
+  if(type==="tkt") return !isCheckout&&!isRental&&!isHotelItem;
   return !isCheckout;
 }
 /* 키워드 겹침 점수 */
@@ -857,9 +860,24 @@ function docKeyScore(keys,title){
   keys.forEach(function(w){ if(w.length>=3&&t.indexOf(w)>=0) s+=w.length; });
   return s;
 }
+/* 문서 → 그 날짜에서 가장 잘 맞는 항목 1개 (배타적 할당용) */
+function docBestItemId(doc,day){
+  var best=null,bestSc=-1;
+  day.items.forEach(function(it){
+    var title=(effective(it).title||"").toLowerCase();
+    var fit=docTypeFitsItem(doc.type,it,title);
+    var sc=docKeyScore(doc.keys,title);
+    if(!fit&&sc<4) return;            /* 타입도 이름도 안 맞으면 제외 */
+    var total=(fit?10:0)+sc;          /* 타입이 맞으면 가산점 */
+    if(total>bestSc){ bestSc=total; best=it.id; }
+  });
+  return {id:best,score:bestSc};
+}
 
 function analyzeDoc(text,fileName,trip){
   var type=docType(text,fileName);
+  var keys=docKeywords(text,fileName);
+  var autoGuess=false;
   var ds=extractDates(text||"");
   ds.forEach(function(d){ d.prio=datePrio(text||"",d.idx); });
   var inTrip={};
@@ -868,12 +886,10 @@ function analyzeDoc(text,fileName,trip){
   var dates=[];
   if(cand.length){
     if(type.k==="hotel"){
-      /* 호텔: 체크인(우선순위 3) 날짜만 */
       var ci=cand.filter(function(d){ return d.prio===3; });
       var pick=(ci.length?ci:cand).sort(function(a,b){ return a.date<b.date?-1:1; })[0];
       dates=[pick.date];
     }else if(type.k==="air"||type.k==="car"){
-      /* 항공권·렌트카: 관련 날짜 전부 (여러 구간) */
       cand.forEach(function(d){ if(dates.indexOf(d.date)<0) dates.push(d.date); });
       dates.sort();
     }else{
@@ -881,8 +897,55 @@ function analyzeDoc(text,fileName,trip){
       dates=[top.date];
     }
   }
-  return {type:type,dates:dates,keys:docKeywords(text,fileName)};
+  /* 날짜를 못 찾은 경우: 이름(키워드)이 일치하는 일정 항목의 날짜를 사용 */
+  if(!dates.length&&trip){
+    var best=null,bestSc=0;
+    trip.days.forEach(function(d){
+      d.items.forEach(function(it){
+        var t=(effective(it).title||"").toLowerCase();
+        var sc=docKeyScore(keys,t);   /* 종류 제한 없이 이름만으로 탐색 */
+        if(sc>bestSc){ bestSc=sc; best=d; }
+      });
+    });
+    /* 이름 매칭이 확실하면(6점 이상) 그 날짜로 */
+    if(best&&bestSc>=6) dates=[best.date];
+    /* 렌트카는 이름이 달라도(허츠↔hertz) 일정의 렌트카 항목 날짜로 */
+    else if(type.k==="car"){
+      var carDates=[];
+      trip.days.forEach(function(d){
+        d.items.forEach(function(it){
+          if(/렌트카|렌터카|rent\s*a?\s*car|rentacar|hertz|avis|レンタカー|반납/i.test(effective(it).title||""))
+            if(carDates.indexOf(d.date)<0) carDates.push(d.date);
+        });
+      });
+      if(carDates.length) dates=carDates.sort();
+    }
+    /* 호텔인데 날짜 미확인 → 아직 바우처가 없는 호텔 항목의 날짜 후보 */
+    else if(type.k==="hotel"||(type.k==="etc"&&/reservation|confirmation|booking|예약|voucher|바우처/i.test(fileName||""))){
+      var used={};
+      Object.keys(docsState.items).forEach(function(k){
+        var od=docsState.items[k];
+        /* 자동 추정값은 확정이 아니므로 제외 (자기 자신·다른 추정값이 자리를 막지 않도록) */
+        if(od.type==="hotel"&&!od.auto) (od.dates||[]).forEach(function(x){ used[x]=1; });
+      });
+      var free=null;
+      trip.days.forEach(function(d){
+        if(free||used[d.date]) return;
+        d.items.forEach(function(it){
+          if(free) return;
+          if(it.type==="hotel"||/체크인/.test(effective(it).title||"")) free=d.date;
+        });
+      });
+      if(free){
+        dates=[free];
+        autoGuess=true; /* 추정값 — 나중에 재배치 가능 */
+        type={k:"hotel",ic:"🏨",label:"호텔"};
+      }
+    }
+  }
+  return {type:type,dates:dates,keys:keys,auto:autoGuess};
 }
+
 /* ---- PDF 텍스트 추출 ---- */
 function extractPdfText(file){
   return loadPdfJs().then(function(){ return file.arrayBuffer(); })
@@ -922,13 +985,14 @@ function docAddFile(file){
       var id="d_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
       docsState.items[id]={
         id:id, tripId:trip?trip.id:"", name:file.name,
-        type:an.type.k, dates:an.dates||[], keys:an.keys||[],
+        type:an.type.k, dates:an.dates||[], keys:an.keys||[], auto:!!an.auto,
         mime:file.type||"application/pdf",
         size:dataUrl.length, ts:Date.now()
       };
       docsSave();
       return idbPut(id,dataUrl).then(function(){
         docLocalSet[id]=1;
+        docsAutoAssign();          /* 모든 문서 기준으로 추정 날짜 재배치 */
         docsPushOne(id,dataUrl);
         msg.textContent="✅ "+an.type.ic+" "+an.type.label+" · "
           +((an.dates&&an.dates.length)?an.dates.join(", ")+"에 자동 연결":"날짜 미확인 — 아래에서 직접 지정");
@@ -953,7 +1017,40 @@ function docTypeInfo(k){
           tkt:{ic:"🎟",label:"입장권"},rest:{ic:"🍽",label:"식당예약"},
           etc:{ic:"📎",label:"기타"}}[k]||{ic:"📎",label:"기타"};
 }
+/* 날짜를 못 찾은 숙박 바우처를 '비어 있는 호텔 날짜'에 재배치 (업로드 순서와 무관하게 정확) */
+function docsAutoAssign(){
+  var trip=currentTrip();
+  if(!trip) return;
+  /* 1) 추정값(auto)들의 날짜를 일단 비움 */
+  var autos=[];
+  Object.keys(docsState.items).forEach(function(k){
+    var d=docsState.items[k];
+    if(d.auto){ d.dates=[]; autos.push(d); }
+  });
+  if(!autos.length) return;
+  /* 2) 확정 날짜를 가진 호텔 문서가 차지한 날짜 수집 */
+  var used={};
+  Object.keys(docsState.items).forEach(function(k){
+    var d=docsState.items[k];
+    if(d.type==="hotel"&&!d.auto) (d.dates||[]).forEach(function(x){ used[x]=1; });
+  });
+  /* 3) 숙박 항목이 있는 날짜 중 비어 있는 곳에 순서대로 배치 */
+  var freeDays=[];
+  trip.days.forEach(function(d){
+    if(used[d.date]) return;
+    var hasHotel=d.items.some(function(it){
+      return it.type==="hotel"||/체크인/.test(effective(it).title||"");
+    });
+    if(hasHotel) freeDays.push(d.date);
+  });
+  autos.forEach(function(d,i){
+    if(freeDays[i]) d.dates=[freeDays[i]];
+  });
+  docsSave();
+}
+
 function docsFor(date,itemId){
+  if(itemId) return []; /* 항목별 조회는 docsForItem() 사용 */
   var out=[];
   Object.keys(docsState.items).forEach(function(k){
     var d=docsState.items[k];
@@ -969,16 +1066,26 @@ function docsFor(date,itemId){
 /* 일정 항목에 붙일 문서 (날짜+종류+키워드 동적 매칭 — 일정 재업로드에도 안전) */
 function docsForItem(item,dayDate){
   if(!item||!dayDate) return [];
+  var trip=currentTrip();
+  var day=trip&&trip.days.find(function(d){ return d.date===dayDate; });
+  if(!day) return [];
   var e=effective(item), title=(e.title||"").toLowerCase();
   var res=[];
   Object.keys(docsState.items).forEach(function(k){
     var d=docsState.items[k];
     var dts=d.dates||(d.date?[d.date]:[]);
     if(dts.indexOf(dayDate)<0) return;
-    if(!docTypeFitsItem(d.type,item,title)) return;
+    var fit=docTypeFitsItem(d.type,item,title);
     var sc=docKeyScore(d.keys,title);
-    /* 입장권·기타는 키워드가 맞아야 붙음 */
-    if((d.type==="tkt"||d.type==="etc")&&sc<4) return;
+    if(d.type==="air"){
+      if(!fit) return;               /* 항공권: 공항 출발 항목에만 (엄격) */
+      res.push({d:d,sc:sc});
+      return;
+    }
+    if(!fit&&sc<4) return;           /* 타입도 이름도 안 맞으면 제외 */
+    var best=docBestItemId(d,day);   /* 그 날짜에서 가장 잘 맞는 항목 하나에만 */
+    if(best.id!==item.id) return;
+    if((d.type==="tkt"||d.type==="etc")&&sc<4&&!fit) return;
     res.push({d:d,sc:sc});
   });
   return res.sort(function(a,b){ return b.sc-a.sc; }).map(function(x){ return x.d; });
@@ -1014,6 +1121,7 @@ function docRenderList(){
 
 function docOpenWallet(date){
   docsPurge();
+  docsAutoAssign();
   docRenderList();
   refreshLocalSet(function(){
     docRenderList();
@@ -1232,7 +1340,7 @@ document.addEventListener("change",function(ev){
   if(s&&s.dataset&&s.dataset.docdate&&s.value){
     var d=docsState.items[s.dataset.docdate];
     if(d){
-      d.dates=[s.value]; d.date=s.value; d.ts=Date.now();
+      d.dates=[s.value]; d.date=s.value; d.auto=false; d.ts=Date.now();
       docsSave(); docsPushOne(d.id,null); docRenderList(); render();
     }
   }
@@ -1558,14 +1666,7 @@ function itemHTML(item,dateKey,kind,computedWalk,an){
   if(!an.nav&&an.nearbyLL){
     btns+='<button class="nav-btn nav-t" data-nearbyll="'+esc(an.nearbyLL)+'">🍴 주변 식당 찾기</button>';
   }
-  if(item.type==="flight"){
-    var fDocs=docsFor(null,item.id);
-    if(fDocs.length){
-      var fd=docTypeInfo(fDocs[0].type);
-      btns+='<button class="doc-btn air" data-docopen="'+esc(fDocs[0].id)+'">'+fd.ic+' '+fd.label+(fDocs.length>1?' +'+(fDocs.length-1):'')+'</button>';
-    }
-  }
-    if(an.nav&&item.type==="spot"){
+  if(an.nav&&item.type==="spot"){
     btns+='<button class="info-btn" data-info="'+item.id+'">ℹ️</button>';
     if(t) btns+='<button class="park-btn" data-park="'+item.id+'">🅿</button>';
   }
