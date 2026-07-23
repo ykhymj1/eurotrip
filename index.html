@@ -281,7 +281,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v16.1 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v16.2 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -945,6 +945,19 @@ function analyzeDoc(text,fileName,trip){
     });
     /* 이름 매칭이 확실하면(6점 이상) 그 날짜로 */
     if(best&&bestSc>=6) dates=[best.date];
+    /* 항공권: 날짜를 못 찾으면 여정의 모든 '공항 출발' 날짜에 연결
+       (e-티켓 1장이 전체 여정을 담고 있으므로 의미상 정확) */
+    else if(type.k==="air"){
+      var airDates=[];
+      trip.days.forEach(function(d){
+        var has=d.items.some(function(it){
+          var t=(effective(it).title||"").toLowerCase();
+          return docTypeFitsItem("air",it,t);
+        });
+        if(has&&airDates.indexOf(d.date)<0) airDates.push(d.date);
+      });
+      if(airDates.length){ dates=airDates.sort(); autoGuess=true; }
+    }
     /* 렌트카는 이름이 달라도(허츠↔hertz) 일정의 렌트카 항목 날짜로 */
     else if(type.k==="car"){
       var carDates=[];
@@ -1083,7 +1096,7 @@ function docsAutoAssign(){
   var autos=[];
   Object.keys(docsState.items).forEach(function(k){
     var d=docsState.items[k];
-    if(d.auto){ d.dates=[]; autos.push(d); }
+    if(d.auto&&d.type==="hotel"){ d.dates=[]; autos.push(d); } /* 숙박 추정값만 재배치 */
   });
   if(!autos.length) return;
   /* 2) 확정 날짜를 가진 호텔 문서가 차지한 날짜 수집 */
