@@ -281,7 +281,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v16 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v16.1 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -840,10 +840,12 @@ function docTypeFitsItem(type,item,title){
   if(type==="car") return isRental;
   if(type==="air"){
     if(isRental||isCheckout||isHotelItem) return false;
-    /* 실제 비행기를 타는 순간 = 공항/터미널/항공사 + '출발' (단, '~으로/에서 출발'은 이동일 뿐) */
+    /* 실제 비행기를 타는 순간 = 공항/터미널/항공사/편명 + '출발' (단, '~으로/에서 출발'은 이동) */
     if(!/출발/.test(title)) return false;
     if(/으로\s*출발|에서\s*출발/.test(title)) return false;
-    return /공항|airport|terminal|터미널|항공|airlines?|air\s*canada|ana\b/i.test(title);
+    /* 편명(NH864, AC64, KE001 등)이 제목에 있으면 확실한 탑승 항목 */
+    if(/\b[A-Z]{2}\s?\d{2,4}\b/.test((item.title||"")+" "+title)) return true;
+    return /공항|airport|terminal|터미널|항공|airlines?|air\s*canada|ana\b|나리타|하네다|밴쿠버|캘거리|김포|인천/i.test(title);
   }
   if(type==="hotel"){
     if(isCheckout||isRental) return false;
@@ -853,11 +855,15 @@ function docTypeFitsItem(type,item,title){
   if(type==="tkt") return !isCheckout&&!isRental&&!isHotelItem;
   return !isCheckout;
 }
-/* 키워드 겹침 점수 */
+/* 키워드 겹침 점수 (공백·기호 무시 — pdf.js가 글자 사이에 공백을 넣는 경우 대응) */
+function normKey(s){ return String(s||"").toLowerCase().replace(/[\s·・()（）\[\]{}<>「」【】,.:;!?"'\-_/\\]/g,""); }
 function docKeyScore(keys,title){
   if(!keys||!keys.length) return 0;
-  var t=(title||"").toLowerCase(), s=0;
-  keys.forEach(function(w){ if(w.length>=3&&t.indexOf(w)>=0) s+=w.length; });
+  var t=normKey(title), s=0;
+  keys.forEach(function(w){
+    var n=normKey(w);
+    if(n.length>=3&&t.indexOf(n)>=0) s+=n.length;
+  });
   return s;
 }
 /* 문서 → 그 날짜에서 가장 잘 맞는 항목 1개 (배타적 할당용) */
@@ -868,12 +874,19 @@ function docBestItemId(doc,day){
     var fit=docTypeFitsItem(doc.type,it,title);
     var sc=docKeyScore(doc.keys,title);
     if(!fit&&sc<4) return;            /* 타입도 이름도 안 맞으면 제외 */
-    var total=(fit?10:0)+sc;          /* 타입이 맞으면 가산점 */
+    /* 타입 일치 가산점 — 이름이 달라도(일정: "룩셈부르크 호텔", 문서: "Hotel Le Place")
+       날짜+종류가 맞으면 연결되도록 */
+    var total=(fit?10:0)+sc;
     if(total>bestSc){ bestSc=total; best=it.id; }
   });
   return {id:best,score:bestSc};
 }
 
+function docNextDay(dateStr){
+  var p=String(dateStr).split("-");
+  var d=new Date(+p[0],+p[1]-1,+p[2]+1);
+  return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
+}
 function analyzeDoc(text,fileName,trip){
   var type=docType(text,fileName);
   var keys=docKeywords(text,fileName);
@@ -889,9 +902,32 @@ function analyzeDoc(text,fileName,trip){
       var ci=cand.filter(function(d){ return d.prio===3; });
       var pick=(ci.length?ci:cand).sort(function(a,b){ return a.date<b.date?-1:1; })[0];
       dates=[pick.date];
-    }else if(type.k==="air"||type.k==="car"){
+    }else if(type.k==="air"){
+      /* 항공권: 여정에 포함된 모든 날짜 + 경유로 날짜가 바뀌는 구간까지 커버 */
       cand.forEach(function(d){ if(dates.indexOf(d.date)<0) dates.push(d.date); });
       dates.sort();
+      /* 경유 대기가 자정을 넘기는 경우(예: 인천 8일 출발 → 경유지 9일 출발) 다음날도 포함 */
+      var ext=[];
+      dates.forEach(function(ds){
+        var nx=docNextDay(ds);
+        if(inTrip[nx]&&dates.indexOf(nx)<0&&ext.indexOf(nx)<0) ext.push(nx);
+      });
+      ext.forEach(function(x){ dates.push(x); });
+      dates.sort();
+    }else if(type.k==="car"){
+      cand.forEach(function(d){ if(dates.indexOf(d.date)<0) dates.push(d.date); });
+      dates.sort();
+      /* 픽업/반납 날짜만 뽑혔는데 일정에 렌트카 항목이 더 있으면 함께 연결 */
+      if(trip){
+        trip.days.forEach(function(d){
+          if(dates.indexOf(d.date)>=0) return;
+          var hasCar=d.items.some(function(it){
+            return /렌트카|렌터카|rent\s*a?\s*car|rentacar|반납|pick.?up|レンタカー/i.test(effective(it).title||"");
+          });
+          if(hasCar&&dates.length&&d.date>=dates[0]&&d.date<=dates[dates.length-1]) dates.push(d.date);
+        });
+        dates.sort();
+      }
     }else{
       var top=cand.sort(function(a,b){ return (b.prio-a.prio)||(a.date<b.date?-1:1); })[0];
       dates=[top.date];
@@ -986,6 +1022,7 @@ function docAddFile(file){
       docsState.items[id]={
         id:id, tripId:trip?trip.id:"", name:file.name,
         type:an.type.k, dates:an.dates||[], keys:an.keys||[], auto:!!an.auto,
+        text:(text||"").slice(0,4000),
         mime:file.type||"application/pdf",
         size:dataUrl.length, ts:Date.now()
       };
@@ -1017,6 +1054,27 @@ function docTypeInfo(k){
           tkt:{ic:"🎟",label:"입장권"},rest:{ic:"🍽",label:"식당예약"},
           etc:{ic:"📎",label:"기타"}}[k]||{ic:"📎",label:"기타"};
 }
+/* 구버전에서 올려 keys/dates가 없는 문서를 저장된 text로 재분석 */
+function docsReanalyzeLegacy(){
+  var trip=currentTrip();
+  if(!trip) return;
+  var changed=false;
+  Object.keys(docsState.items).forEach(function(k){
+    var d=docsState.items[k];
+    if(d.manual) return; /* 사용자가 직접 지정한 건 건드리지 않음 */
+    var noKeys=(!d.keys||!d.keys.length);
+    var noDates=(!d.dates||!d.dates.length);
+    if(noKeys||noDates){
+      var an=analyzeDoc(d.text||"",d.name||"",trip);
+      if(noKeys) d.keys=an.keys;
+      if(noDates&&an.dates&&an.dates.length){ d.dates=an.dates; d.auto=!!an.auto; }
+      if(!d.type||d.type==="etc") d.type=an.type.k;
+      changed=true;
+    }
+  });
+  if(changed) docsSave();
+}
+
 /* 날짜를 못 찾은 숙박 바우처를 '비어 있는 호텔 날짜'에 재배치 (업로드 순서와 무관하게 정확) */
 function docsAutoAssign(){
   var trip=currentTrip();
@@ -1121,6 +1179,7 @@ function docRenderList(){
 
 function docOpenWallet(date){
   docsPurge();
+  docsReanalyzeLegacy();
   docsAutoAssign();
   docRenderList();
   refreshLocalSet(function(){
@@ -1316,6 +1375,8 @@ function docsStartSync(db,code){
     });
     Object.keys(docsState.items).forEach(function(k){ if(!m[k]&&!docsState.del[k]) mine.push(k); });
     docsApplying=false;
+    docsReanalyzeLegacy();
+    docsAutoAssign();
     docsSave();
     if(docOverlay.classList.contains("show")) docRenderList();
     render();
@@ -1340,7 +1401,7 @@ document.addEventListener("change",function(ev){
   if(s&&s.dataset&&s.dataset.docdate&&s.value){
     var d=docsState.items[s.dataset.docdate];
     if(d){
-      d.dates=[s.value]; d.date=s.value; d.auto=false; d.ts=Date.now();
+      d.dates=[s.value]; d.date=s.value; d.auto=false; d.manual=true; d.ts=Date.now();
       docsSave(); docsPushOne(d.id,null); docRenderList(); render();
     }
   }
