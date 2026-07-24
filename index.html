@@ -281,7 +281,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v17.1 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v18 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -782,6 +782,32 @@ function extractDates(text){
   /* 2026-08-16 / 2026.08.16 / 2026/08/16 */
   var re4=/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/g;
   while((m=re4.exec(text))!==null) push(+m[1],+m[2],+m[3],m.index);
+  /* 유럽식 10.12.2024 / 11/12/24 → 일.월.연 (양방향 후보로 등록) */
+  var re5=/(\d{1,2})[-.\/](\d{1,2})[-.\/](\d{2,4})(?!\d)/g;
+  while((m=re5.exec(text))!==null){
+    var yy=+m[3]; if(yy<100) yy+=2000;
+    push(yy,+m[2],+m[1],m.index);   /* 일.월.연 (유럽) */
+    push(yy,+m[1],+m[2],m.index);   /* 월/일/연 (미국) — 둘 중 일정과 맞는 쪽이 채택됨 */
+  }
+  return out;
+}
+
+/* 문서 날짜를 여행 날짜에 맞춤: 연도가 달라도 월·일이 같으면 그 여행일로 인정
+   (일정표에 연도가 없어 추정되는 경우 + 과거 여행 대응) */
+function alignDatesToTrip(cands,trip){
+  if(!trip) return [];
+  var mdMap={};
+  trip.days.forEach(function(d){
+    var p=d.date.split("-");
+    mdMap[(+p[1])+"-"+(+p[2])]=d.date;
+  });
+  var out=[];
+  cands.forEach(function(c){
+    var p=c.date.split("-");
+    var key=(+p[1])+"-"+(+p[2]);
+    var hit=mdMap[key];
+    if(hit) out.push({date:hit,idx:c.idx,prio:c.prio});
+  });
   return out;
 }
 function datePrio(text,idx){
@@ -792,6 +818,22 @@ function datePrio(text,idx){
 }
 
 function docType(text,name){
+  /* 파일명 우선 판정: 사용자가 직접 붙인 이름이 가장 확실한 단서 */
+  var fn=String(name||"");
+  var fnl=fn.toLowerCase();
+  if(/렌트카|렌터카|rent\s*a?\s*car|rentacar/i.test(fn))
+    return {k:"car",ic:"🚗",label:"렌트카"};
+  if(/호텔|숙소|hotel|료칸|리조트|resort/i.test(fn))
+    return {k:"hotel",ic:"🏨",label:"호텔"};
+  /* 항공권을 입장권보다 먼저 판정 (Electronic Ticket이 '티켓'으로 새는 것 방지) */
+  if(/항공권|국내선|국제선|출발|도착|항공|electronic\s*ticket|e-?ticket|eticket|itinerary|boarding|^et_|\bicn\b|\bmad\b|\bsfo\b|\bnrt\b|\bhnd\b|\blax\b|\bcdg\b|\bfco\b|\bkix\b|\byvr\b|\byyc\b/i.test(fn)
+     ||/\b[A-Z]{3}\s+[A-Z]{3}\b/.test(fn))
+    return {k:"air",ic:"✈️",label:"항공권"};
+  if(/티켓|입장권|tickets?\b|admission|pass\b|투어|tour\b/i.test(fn))
+    return {k:"tkt",ic:"🎟",label:"입장권"};
+  if(/식당|레스토랑|restaurant|맛집|예약.*(석|자리)/i.test(fn))
+    return {k:"rest",ic:"🍽",label:"식당예약"};
+
   var t=((text||"")+" "+(name||"")).toLowerCase();
   var raw=(text||"")+" "+(name||"");
   function cnt(re){ var m=t.match(re); return m?m.length:0; }
@@ -845,7 +887,8 @@ function docTypeFitsItem(type,item,title){
     if(/으로\s*출발|에서\s*출발/.test(title)) return false;
     /* 편명(NH864, AC64, KE001 등)이 제목에 있으면 확실한 탑승 항목 */
     if(/\b[A-Z]{2}\s?\d{2,4}\b/.test((item.title||"")+" "+title)) return true;
-    return /공항|airport|terminal|터미널|항공|airlines?|air\s*canada|ana\b|나리타|하네다|밴쿠버|캘거리|김포|인천/i.test(title);
+    if(item.type==="flight") return true;   /* 파서가 항공편으로 인식한 항목 */
+    return /공항|airport|terminal|터미널|항공|에어|airlines?|airways|air\s|나리타|하네다|밴쿠버|캘거리|김포|인천|치토세|간사이/i.test(title);
   }
   if(type==="hotel"){
     if(isCheckout||isRental) return false;
@@ -887,6 +930,24 @@ function docNextDay(dateStr){
   var d=new Date(+p[0],+p[1]-1,+p[2]+1);
   return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
 }
+/* 파일명의 M.D / M-D / M_D 표기를 여행 날짜와 대조해 확정
+   (사용자 습관: "6.26 덴버호텔.pdf", "12.10 바르셀로나호텔.pdf") */
+function datesFromFileName(fileName,trip){
+  if(!fileName||!trip) return [];
+  var base=String(fileName).replace(/\.[a-z0-9]+$/i,"");
+  var out=[],m;
+  var re=/(?:^|[^0-9])(\d{1,2})\s*[.\-_/]\s*(\d{1,2})(?![0-9])/g;
+  while((m=re.exec(base))!==null){
+    var a=+m[1], b=+m[2];
+    if(a<1||a>12||b<1||b>31) continue;
+    trip.days.forEach(function(d){
+      var p=d.date.split("-");
+      if(+p[1]===a&&+p[2]===b&&out.indexOf(d.date)<0) out.push(d.date);
+    });
+  }
+  return out;
+}
+
 function analyzeDoc(text,fileName,trip){
   var type=docType(text,fileName);
   var keys=docKeywords(text,fileName);
@@ -895,8 +956,15 @@ function analyzeDoc(text,fileName,trip){
   ds.forEach(function(d){ d.prio=datePrio(text||"",d.idx); });
   var inTrip={};
   if(trip) trip.days.forEach(function(dd){ inTrip[dd.date]=1; });
+  /* 1차: 연도까지 일치 / 2차: 월·일만 일치(연도 추정·과거여행 대응) */
   var cand=ds.filter(function(d){ return inTrip[d.date]; });
+  if(!cand.length) cand=alignDatesToTrip(ds,trip);
   var dates=[];
+  /* 파일명에 날짜가 있으면 최우선 (본문보다 사용자가 의도한 날짜가 정확) */
+  var fnDates=datesFromFileName(fileName,trip);
+  if(fnDates.length&&type.k!=="air"&&type.k!=="car"){
+    return {type:type,dates:fnDates,keys:keys,auto:false};
+  }
   if(cand.length){
     if(type.k==="hotel"){
       var ci=cand.filter(function(d){ return d.prio===3; });
@@ -990,6 +1058,26 @@ function analyzeDoc(text,fileName,trip){
         autoGuess=true; /* 추정값 — 나중에 재배치 가능 */
         type={k:"hotel",ic:"🏨",label:"호텔"};
       }
+    }
+  }
+  /* 항공권 검증: 뽑힌 날짜에 실제 '공항 출발' 항목이 없으면 여정 전체 출발일로 대체 */
+  if(type.k==="air"&&trip){
+    var valid=dates.filter(function(ds){
+      var day=trip.days.find(function(d){ return d.date===ds; });
+      return day&&day.items.some(function(it){
+        return docTypeFitsItem("air",it,(effective(it).title||"").toLowerCase());
+      });
+    });
+    if(!valid.length){
+      var allDep=[];
+      trip.days.forEach(function(d){
+        if(d.items.some(function(it){
+          return docTypeFitsItem("air",it,(effective(it).title||"").toLowerCase());
+        })) allDep.push(d.date);
+      });
+      if(allDep.length){ dates=allDep; autoGuess=true; }
+    }else{
+      dates=valid;
     }
   }
   return {type:type,dates:dates,keys:keys,auto:autoGuess};
@@ -1988,7 +2076,7 @@ function parseItinerary(lines,tripId){
   lines.forEach(function(raw){
     var line=raw.replace(/\s+/g," ").trim();
     if(!line) return;
-    var dre=/\d{1,2}\s*\/\s*\d{1,2}\s*[월화수목금토일](?![가-힣])/g, cuts=[], mm;
+    var dre=/\d{1,2}\s*\/\s*\d{1,2}\s*\(?[월화수목금토일]\)?(?![가-힣])/g, cuts=[], mm;
     while((mm=dre.exec(line))!==null){ if(mm.index>0) cuts.push(mm.index); }
     var prev=0;
     cuts.forEach(function(ci){ var s=line.slice(prev,ci).trim(); if(s) segs.push(s); prev=ci; });
@@ -1999,7 +2087,7 @@ function parseItinerary(lines,tripId){
 
     /* 날짜 줄: "10/8 목 ..." — 요일이 있거나, 빈 줄이거나, 바로 시간이 이어져야 날짜로 인정
        (메모 속 "8/7 575,830 자동결재" 같은 날짜 표기를 새 날로 오인하지 않도록) */
-    var dm=/^(\d{1,2})\s*\/\s*(\d{1,2})\s*([월화수목금토일])?\s*(.*)$/.exec(line);
+    var dm=/^(\d{1,2})\s*\/\s*(\d{1,2})\s*\(?([월화수목금토일])?\)?\s*[:.]?\s*(.*)$/.exec(line);
     if(dm&&+dm[1]>=1&&+dm[1]<=12&&+dm[2]>=1&&+dm[2]<=31){
       var rest=(dm[4]||"").trim();
       var looksDate=!!dm[3]||rest===""||/^\d{1,2}:\d{2}(?!\d)/.test(rest);
@@ -2018,7 +2106,7 @@ function parseItinerary(lines,tripId){
     var masked=line.replace(/-?\d{1,3}\.\d{3,}/g,function(s){
       var out=""; for(var z=0;z<s.length;z++) out+="#"; return out;
     });
-    var re=/(\d{1,2}):(\d{2})(?!\d)/g, tok=[], m;
+    var re=/(\d{1,2})\s*[:;]\s*(\d{2})(?!\d)/g, tok=[], m;
     while((m=re.exec(masked))!==null){
       if(+m[1]<=23&&+m[2]<=59) tok.push({i:m.index,len:m[0].length,h:+m[1],mm:m[2]});
     }
