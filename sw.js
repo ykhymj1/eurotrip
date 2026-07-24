@@ -1,5 +1,5 @@
 /* 여행 일정 네비 PWA - Service Worker */
-var CACHE = "wtrip-v17.1-20260723";
+var CACHE = "wtrip-v18-20260724";
 var ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./icon-180.png"];
 
 self.addEventListener("install", function (e) {
@@ -19,7 +19,7 @@ self.addEventListener("activate", function (e) {
   );
 });
 
-/* 네트워크 우선, 실패 시 캐시 (오프라인 대비) */
+/* index.html은 항상 최신(네트워크 우선) → 새 배포가 즉시 반영됨 */
 self.addEventListener("fetch", function (e) {
   if (e.request.method !== "GET") return;
   if (!e.request.url.startsWith(self.location.origin)) return;
