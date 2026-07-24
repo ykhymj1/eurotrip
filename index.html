@@ -1702,6 +1702,57 @@ var todayStr=(function(){
   return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
 })();
 
+/* ---- 여행 전체 자동 삭제: 마지막 날 +3일 경과 시 여행·문서·QR·캐시 전부 제거 ---- */
+var TRIP_TTL_DAYS=3;
+function tripsPurge(){
+  if(!trips||!trips.length) return;
+  var removeIds=[];
+  trips.forEach(function(t){
+    var last="";
+    (t.days||[]).forEach(function(d){ if(d.date>last) last=d.date; });
+    if(last && addDaysStr(last,TRIP_TTL_DAYS)<todayStr) removeIds.push(t.id);
+  });
+  if(!removeIds.length) return;
+
+  removeIds.forEach(function(tripId){
+    var trip=trips.find(function(t){ return t.id===tripId; });
+    if(!trip) return;
+    var tripDates={}; (trip.days||[]).forEach(function(d){ tripDates[d.date]=1; });
+
+    Object.keys(docsState.items).forEach(function(k){
+      if(docsState.items[k].tripId!==tripId) return;
+      var ts=Date.now();
+      delete docsState.items[k]; docsState.del[k]=ts;
+      idbDel(k); delete docLocalSet[k];
+      if(docsRef) docFirebaseDel(k,ts); else docsPendingDel.push({k:k,ts:ts});
+    });
+    docsSave();
+
+    var qrChanged=false;
+    Object.keys(qrState.items).forEach(function(k){
+      if(!tripDates[qrState.items[k].date]) return;
+      delete qrState.items[k]; qrState.del[k]=Date.now(); qrChanged=true;
+    });
+    if(qrChanged){ qrSave(); qrPush(); }
+
+    placeCacheDropTrip(tripId);
+
+    cleanupTripData(tripId);
+    trips=trips.filter(function(t){ return t.id!==tripId; });
+    deletedTrips[tripId]=Date.now();
+  });
+
+  save(LS_DEL,deletedTrips);
+  currentId=trips.length?trips[0].id:null;
+  save(LS_TRIPS,trips); save(LS_CUR,currentId);
+  syncPush();
+
+  if(!trips.length){
+    [LS_WIKI,LS_AI,LS_FOLD].forEach(function(k){ try{ localStorage.removeItem(k); }catch(e){} });
+  }
+  status("🗑 종료된 여행 "+removeIds.length+"건 자동 삭제 완료");
+}
+
 function itemHTML(item,dateKey,kind,computedWalk,an){
   var e=effective(item);
   if(!kind) kind=kindOf(item,e.title);
@@ -3042,6 +3093,7 @@ if(navigator.storage&&navigator.storage.persist){
 refreshLocalSet();
 qrPurgeExpired(); /* QR: 날짜 +30일 경과 시 자동 삭제 */
 docsPurge();      /* 문서: 여행 종료 +14일 경과 시 자동 삭제 */
+tripsPurge();     /* 여행: 종료 +3일 경과 시 여행 전체 자동 삭제 */
 placeCachePurge();/* 관광지 설명·AI 요약: 여행 종료 +14일 경과 시 자동 삭제 */
 if(syncCode) startSync(); /* 연결되면 Firebase 쪽 삭제도 자동 반영 */
 setTimeout(function(){ placePrefetch(true); },2500); /* 관광지 설명 미리 받기(조용히) */
