@@ -281,7 +281,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v18 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v18.2 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -770,6 +770,11 @@ function extractDates(text){
   /* 한국어: 2026 년 8 월 16 일 */
   var re1=/(\d{4})\s*년[\s년]*(\d{1,2})\s*월[\s월]*(\d{1,2})\s*일/g;
   while((m=re1.exec(text))!==null) push(+m[1],+m[2],+m[3],m.index);
+  /* 한국어 축약: 6월 21, 2024 / 6월 21일 (연도 없으면 여행 연도로 정렬됨) */
+  var reK2=/(\d{1,2})\s*월\s*(\d{1,2})\s*(?:일)?\s*,?\s*(\d{4})/g;
+  while((m=reK2.exec(text))!==null) push(+m[3],+m[1],+m[2],m.index);
+  var reK3=/(?:^|[^0-9])(\d{1,2})\s*월\s*(\d{1,2})\s*일/g;
+  while((m=reK3.exec(text))!==null) push(2000,+m[1],+m[2],m.index); /* 연도 미상 → 월·일 정렬로 매칭 */
   /* 일본어: 2026年8月22日 */
   var reJ=/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g;
   while((m=reJ.exec(text))!==null) push(+m[1],+m[2],+m[3],m.index);
@@ -811,9 +816,14 @@ function alignDatesToTrip(cands,trip){
   return out;
 }
 function datePrio(text,idx){
-  var pre=text.slice(Math.max(0,idx-160),idx).toLowerCase();
-  if(/체크인|입실|arrival|check\s*-?\s*in|valid\s*from|チェックイン|ご到着|픽업|대여|인수|pick\s*-?\s*up/.test(pre)) return 3;
-  if(/출발|departure|체크아웃|check\s*-?\s*out|반납|반환|return|チェックアウト|expires|유효/.test(pre)) return 2;
+  var near=text.slice(Math.max(0,idx-45),idx).toLowerCase();   /* 바로 앞 = 확실 */
+  var far=text.slice(Math.max(0,idx-160),idx).toLowerCase();   /* 문단 내 = 보통 */
+  var IN=/체크인|입실|arrival|check\s*-?\s*in|valid\s*from|チェックイン|ご到着|픽업|픽업\s*날짜|대여|인수|pick\s*-?\s*up|출발\s*예정/;
+  var OUT=/출발|departure|체크아웃|check\s*-?\s*out|반납|반환|return|チェックアウト|expires|유효|반납\s*날짜/;
+  if(IN.test(near)) return 4;      /* 바로 앞에 체크인/픽업 → 최우선 */
+  if(OUT.test(near)) return 2;
+  if(IN.test(far)) return 3;
+  if(OUT.test(far)) return 2;
   return 1;
 }
 
@@ -839,7 +849,7 @@ function docType(text,name){
   function cnt(re){ var m=t.match(re); return m?m.length:0; }
   function cntRaw(re){ var m=raw.match(re); return m?m.length:0; }
   var sc={
-    car: cnt(/hertz|avis|budget|sixt|enterprise|national\s*car|alamo|dollar\s*rent|thrifty|europcar|rent\s*a\s*car|rentacar|렌트카|렌터카|rental\s*car|차량\s*예약|픽업\s*일시|반납\s*일시|대여\s*일시|vehicle\s*class|pick.?up\s*location/g)*3+cntRaw(/レンタカー|貸出日時|返却日時|タイムズ|オリックス|トヨタレンタ|ニッポンレンタカー|日産レンタ|車両クラス/g)*3,
+    car: cnt(/hertz|avis|budget|sixt|enterprise|national\s*car|alamo|dollar\s*rent|thrifty|europcar|rent\s*a\s*car|rentacar|렌트카|렌터카|rental\s*car|차량\s*예약|픽업\s*일시|반납\s*일시|대여\s*일시|vehicle\s*class|pick.?up\s*location|픽업\s*영업소|반납\s*영업소|픽업\s*날짜|반납\s*날짜|렌탈\s*시|영업소\s*영업\s*시간|차량\s*등급|보험\s*및\s*보장|면책|자차/g)*3+cntRaw(/レンタカー|貸出日時|返却日時|タイムズ|オリックス|トヨタレンタ|ニッポンレンタカー|日産レンタ|車両クラス/g)*3,
     air: cnt(/e-?ticket|electronic\s*ticket|itinerary.{0,6}receipt|airways|airlines|air\s*canada|all\s*nippon|항공권|passenger\s*ticket|flight\s*no|편명|탑승권|boarding\s*pass|pnr/g)*3,
     hotel: cnt(/booking\s*confirmation|voucher|체크인|arrival\s*:|departure\s*:/g)*3
            +cnt(/호텔|숙소|agoda|booking\.com|hotel|resort|객실|숙박|inn\b|number\s*of\s*rooms|room\s*type|guest\s*name/g)*2
@@ -967,8 +977,9 @@ function analyzeDoc(text,fileName,trip){
   }
   if(cand.length){
     if(type.k==="hotel"){
-      var ci=cand.filter(function(d){ return d.prio===3; });
-      var pick=(ci.length?ci:cand).sort(function(a,b){ return a.date<b.date?-1:1; })[0];
+      var maxP=Math.max.apply(null,cand.map(function(d){ return d.prio||1; }));
+      var ci=cand.filter(function(d){ return (d.prio||1)===maxP; });
+      var pick=ci.sort(function(a,b){ return a.date<b.date?-1:1; })[0];
       dates=[pick.date];
     }else if(type.k==="air"){
       /* 항공권: 여정에 포함된 모든 날짜 + 경유로 날짜가 바뀌는 구간까지 커버 */
@@ -2310,7 +2321,7 @@ document.getElementById("delTripBtn").addEventListener("click",function(){
   var nDoc=Object.keys(docsState.items).filter(function(k){ return docsState.items[k].tripId===trip.id; }).length;
   var tripDates={}; trip.days.forEach(function(d){ tripDates[d.date]=1; });
   var nQr=Object.keys(qrState.items).filter(function(k){ return tripDates[qrState.items[k].date]; }).length;
-  if(!confirm("\""+trip.name+"\" 여행을 삭제할까요?\n\n함께 삭제됩니다:\n· 티켓·바우처 "+nDoc+"개\n· QR "+nQr+"장\n· 관광지 설명·AI 요약 캐시\n(기기와 서버 모두에서 삭제)")) return;
+  if(!confirm("⚠️ 여행을 삭제하시겠습니까?\n\n\""+trip.name+"\"\n\n함께 삭제되는 항목:\n· 티켓·바우처 "+nDoc+"개\n· QR "+nQr+"장\n· 관광지 설명·AI 요약 캐시\n· 일정 전체\n\n📱 내 기기 + ☁️ 서버 + 연결된 다른 기기\n모두에서 삭제되며, 되돌릴 수 없습니다.\n\n계속하시려면 [확인]을 누르세요.")) return;
 
   /* 1) 문서 삭제 (로컬 + IndexedDB + Firebase) */
   Object.keys(docsState.items).forEach(function(k){
@@ -3079,13 +3090,17 @@ document.body.addEventListener("click",function(ev){
   if(el.dataset.docdate2){ docOpenWallet(el.dataset.docdate2); return; }
   if(el.dataset.docopen){ docOpen(el.dataset.docopen); return; }
   if(el.dataset.docdel){
-    if(!confirm("이 문서를 삭제할까요?")) return;
+    var _dd=docsState.items[el.dataset.docdel];
+    var _dn=_dd?(_dd.name||"문서"):"문서";
+    if(!confirm("⚠️ 이 문서를 삭제하시겠습니까?\n\n"+_dn+"\n\n내 기기와 서버, 연결된 다른 기기에서\n모두 삭제되며 되돌릴 수 없습니다.")) return;
     docDelete(el.dataset.docdel); return;
   }
   if(el.dataset.qrdate){ qrOpenWallet(el.dataset.qrdate); return; }
   if(el.dataset.qropen){ qrShow(el.dataset.qropen); return; }
   if(el.dataset.qrdel){
-    if(!confirm("이 QR을 삭제할까요?")) return;
+    var _qq=qrState.items[el.dataset.qrdel];
+    var _qn=_qq?((_qq.person||"")+" "+(_qq.label||"QR")):"QR";
+    if(!confirm("⚠️ 이 QR을 삭제하시겠습니까?\n\n"+_qn.trim()+"\n\n내 기기와 서버, 연결된 다른 기기에서\n모두 삭제되며 되돌릴 수 없습니다.")) return;
     var qid=el.dataset.qrdel;
     delete qrState.items[qid]; qrState.del[qid]=Date.now();
     qrSave(); qrPush(); qrRenderList(); render(); /* qrPush가 del 포함해 Firebase 전체 덮어씀 */
@@ -3129,7 +3144,9 @@ document.body.addEventListener("click",function(ev){
   }
   if(el.dataset.edit){ openEdit(el.dataset.edit); return; }
   if(el.dataset.del){
-    if(!confirm("이 일정을 삭제할까요?")) return;
+    var _di=findItem(el.dataset.del);
+    var _dit=_di?(effective(_di).title||"일정"):"일정";
+    if(!confirm("이 일정을 삭제하시겠습니까?\n\n"+_dit.slice(0,40)+"\n\n되돌릴 수 없습니다.")) return;
     var trip=currentTrip(), did=el.dataset.del;
     if(trip){
       trip.days.forEach(function(d){
