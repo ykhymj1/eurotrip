@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v20.1 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v20.2 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1611,17 +1611,30 @@ function docAddFile(file){
     return readDataUrl(file).then(function(dataUrl){
       var trip=currentTrip();
       var an=analyzeDoc(text,file.name,trip);
-      var id="d_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
+      /* v20.2: 같은 이름의 바우처를 다시 올리면 새 항목을 만들지 않고 그 항목을 갱신
+         (동기화에 실패했던 파일을 다시 올려 고칠 수 있게) */
+      var id=null, keepDates=null, keepManual=false;
+      Object.keys(docsState.items).forEach(function(k){
+        var r=docsState.items[k];
+        if(!id&&r&&r.name===file.name&&(!r.tripId||!trip||r.tripId===trip.id)){
+          id=k; keepDates=r.dates; keepManual=!!r.manual;
+        }
+      });
+      var isReupload=!!id;
+      if(!id) id="d_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
       docsState.items[id]={
         id:id, tripId:trip?trip.id:"", name:file.name,
         type:an.type.k, dates:an.dates||[], keys:an.keys||[], auto:!!an.auto,
-        person:an.person||"", av:DOC_AV,
+        person:an.person||"", av:DOC_AV, manual:keepManual, nosync:0, chunks:0,
         text:(text||"").slice(0,4000),
         mime:file.type||"application/pdf",
         size:dataUrl.length, ts:Date.now()
       };
+      /* 사용자가 직접 지정했던 날짜는 유지 */
+      if(isReupload&&keepManual&&keepDates&&keepDates.length) docsState.items[id].dates=keepDates;
       docsSave();
       var big=dataUrl.length>DOC_SYNC_MAX;
+      var chunked=!big&&dataUrl.length>DOC_CHUNK;
       if(big) docsState.items[id].nosync=1;
       return idbPut(id,dataUrl).then(function(){
         docLocalSet[id]=1;
@@ -1630,7 +1643,8 @@ function docAddFile(file){
         if(an.type.k==="air") flightRegister(docsState.items[id]);  /* 항공권 → 추적 시작 알림 */
         msg.textContent="✅ "+an.type.ic+" "+an.type.label+" · "
           +((an.dates&&an.dates.length)?an.dates.join(", ")+"에 자동 연결":"날짜 미확인 — 아래에서 직접 지정")
-          +(big?" · ⚠ 용량이 커서("+Math.round(dataUrl.length/1024/1024)+"MB) 이 기기에만 저장됩니다":"");
+          +(big?" · ⚠ 용량이 너무 커서("+Math.round(dataUrl.length/1024/1024)+"MB) 이 기기에만 저장됩니다"
+               :(chunked?" · ☁ 큰 파일이라 나눠서 동기화합니다("+Math.round(dataUrl.length/1024/1024)+"MB)":""));
         docRenderList(); render();
       }).catch(function(err){
         /* IndexedDB 저장 실패(용량 부족 등) — 조용히 넘어가면 나중에 빈 화면이 됨 */
@@ -1828,7 +1842,7 @@ function docRenderList(){
       +'<div class="meta"><div class="nm">'+esc(d.name.replace(/\.(pdf|png|jpe?g)$/i,"").slice(0,40))+'</div>'
       +'<div class="lb">'+ti.label+(d.person?(' · '+esc(d.person)):'')+' · '+esc(dts)+' · '+Math.round(d.size/1024)+'KB · '
       +(docLocalSet[d.id]?'<span style="color:#3E7C4F;font-weight:800">✔ 오프라인 OK</span>'
-        :(d.nosync?'<span style="color:#B04A3A;font-weight:800">⚠ 용량 초과 · 이 기기에 없음</span>'
+        :(d.nosync?'<span style="color:#B04A3A;font-weight:800">⚠ 용량 초과 · 동기화 불가</span>'
                   :'<span style="color:#B04A3A;font-weight:800">☁ 미다운로드</span>'))+'</div>'
       +'<select data-docdate="'+esc(d.id)+'"><option value="">날짜 지정/변경…</option>'+opts+'</select>'
       +'</div>'
@@ -1949,9 +1963,8 @@ function docOpen(id){
   var w=window.open("","_blank"); /* 팝업 차단 회피: 클릭 시점에 미리 열기 */
   idbGet(id).then(function(dataUrl){
     if(!dataUrl&&docsRef){
-      return docsRef.child("files/"+id).once("value").then(function(s){
-        var v=s.val();
-        if(v) return idbPut(id,v).then(function(){ return v; });
+      return docFetchRemote(id).then(function(v){
+        if(v) return idbPut(id,v).then(function(){ docLocalSet[id]=1; return v; }).catch(function(){ return v; });
         return null;
       });
     }
@@ -1961,7 +1974,7 @@ function docOpen(id){
       if(w) w.close();
       var rc=docsState.items[id]||{};
       if(rc.nosync||(rc.size||0)>DOC_SYNC_MAX){
-        alert("이 파일은 용량이 커서("+Math.round((rc.size||0)/1024/1024)+"MB) 기기 간 동기화가 되지 않습니다.\n\n"
+        alert("이 파일은 용량이 너무 커서("+Math.round((rc.size||0)/1024/1024)+"MB) 동기화되지 않습니다.\n\n"
              +"처음 올린 기기에서 열거나, 이 기기에서 같은 파일을 한 번 더 올려주세요.");
       }else{
         alert("파일을 찾을 수 없습니다. 다른 기기에서 동기화 중일 수 있어요.");
@@ -1980,6 +1993,7 @@ function docFirebaseDel(id,ts){
   try{
     docsRef.child("meta/"+id).remove();
     docsRef.child("files/"+id).remove();
+    docsRef.child("parts/"+id).remove();
     docsRef.child("del/"+id).set(ts||Date.now());
   }catch(e){}
 }
@@ -2004,7 +2018,8 @@ function refreshLocalSet(cb){
 }
 function docsMissingLocal(){
   return Object.keys(docsState.items).filter(function(k){
-    return !docLocalSet[k]&&!(docsState.items[k]||{}).nosync;
+    var r=docsState.items[k]||{};
+    return !docLocalSet[k]&&!r.nosync;
   });
 }
 /* 자동 일괄 다운로드 (백그라운드) — 앱을 열어두기만 하면 전부 저장됨 */
@@ -2012,7 +2027,8 @@ var prefetchRunning=false, prefetchTried={};
 function docPrefetchAll(silent){
   if(!docsRef||prefetchRunning) return;
   var miss=Object.keys(docsState.items).filter(function(k){
-    return !docLocalSet[k]&&!(docsState.items[k]||{}).nosync;   /* 용량 초과분은 받아올 수 없음 */
+    var r=docsState.items[k]||{};
+    return !docLocalSet[k]&&!r.nosync;      /* 동기화 불가로 표시된 것만 제외 */
   });
   if(!miss.length){
     if(!silent) status("✔ 티켓·바우처 전부 이 기기에 저장됨 (오프라인 OK)");
@@ -2036,8 +2052,7 @@ function docPrefetchAll(silent){
     var k=miss[i++];
     status("⬇ 티켓·바우처 내려받는 중… "+i+"/"+miss.length);
     var tries=(prefetchTried[k]||0)+1; prefetchTried[k]=tries;
-    docsRef.child("files/"+k).once("value").then(function(s){
-      var v=s.val();
+    docFetchRemote(k).then(function(v){
       if(!v){ fail.push(k); next(); return; }
       idbPut(k,v).then(function(){ docLocalSet[k]=1; ok++; next(); })
                  .catch(function(){ fail.push(k); next(); });
@@ -2110,26 +2125,70 @@ function docsFlushPendingDel(){
 }
 
 /* ---- 동기화 (docs/{code}) ---- */
-/* Firebase 실시간DB는 큰 문자열 쓰기가 실패한다.
-   base64는 원본의 약 1.37배라 8MB를 넘으면 올리지 않고 이 기기에만 둔다. */
-var DOC_SYNC_MAX=8*1024*1024;
+/* ===== v20.2 큰 바우처도 기기 간 동기화 =====
+   Firebase 실시간DB는 문자열 하나가 10MiB를 넘으면 쓰기가 거부된다.
+   (8.8MB PDF → base64 약 12MB → 거부되어 다른 기기에서 열 수 없었음)
+   → 512KB 조각으로 나눠 parts/{id}/c0,c1,… 에 저장하고 받을 때 이어 붙인다. */
+var DOC_CHUNK=512*1024;              /* 조각 크기 (문자열 상한보다 훨씬 작게) */
+var DOC_SYNC_MAX=40*1024*1024;       /* 이보다 크면 포기 (base64 기준 약 40MB) */
+
+function docMetaPush(id){
+  var rec=docsState.items[id];
+  if(!rec||!docsRef) return;
+  try{ docsRef.child("meta/"+id).set(JSON.parse(JSON.stringify(rec))); }catch(e){}
+}
 function docsPushOne(id,dataUrl){
   if(!docsRef||docsApplying) return;
   var rec=docsState.items[id];
+  if(!rec) return;
   try{
-    if(dataUrl&&dataUrl.length>DOC_SYNC_MAX){
-      if(rec){ rec.nosync=1; docsSave(); }
-      docsRef.child("meta/"+id).set(JSON.parse(JSON.stringify(rec)));
-      return;                                   /* 파일 본체는 올리지 않음 */
-    }
-    docsRef.child("meta/"+id).set(JSON.parse(JSON.stringify(rec)));
-    if(dataUrl){
+    if(!dataUrl){ docMetaPush(id); return; }
+    if(dataUrl.length>DOC_SYNC_MAX){ rec.nosync=1; rec.chunks=0; docsSave(); docMetaPush(id); return; }
+
+    if(dataUrl.length<=DOC_CHUNK){          /* 작은 파일은 예전처럼 통째로 */
+      rec.nosync=0; rec.chunks=0; docsSave(); docMetaPush(id);
       var pr=docsRef.child("files/"+id).set(dataUrl);
-      if(pr&&pr.catch) pr.catch(function(){
-        if(rec){ rec.nosync=1; docsSave(); try{ docRenderList(); }catch(e2){} }
-      });
+      if(pr&&pr.catch) pr.catch(function(){ rec.nosync=1; docsSave(); docMetaPush(id); });
+      return;
     }
-  }catch(e){ if(rec){ rec.nosync=1; docsSave(); } }
+
+    var n=Math.ceil(dataUrl.length/DOC_CHUNK);
+    rec.chunks=n; rec.nosync=0; docsSave(); docMetaPush(id);
+    (function up(i){
+      if(i>=n){ docRenderListSafe(); return; }
+      var part=dataUrl.substr(i*DOC_CHUNK,DOC_CHUNK);
+      docsRef.child("parts/"+id+"/c"+i).set(part).then(function(){
+        if(!silentUpload) status("☁ 큰 바우처 업로드 중… "+(i+1)+"/"+n);
+        up(i+1);
+      }).catch(function(){
+        rec.nosync=1; docsSave(); docMetaPush(id); docRenderListSafe();
+      });
+    })(0);
+  }catch(e){ rec.nosync=1; docsSave(); }
+}
+var silentUpload=false;
+function docRenderListSafe(){ try{ docRenderList(); }catch(e){} }
+
+/* 원격에서 파일 받아오기: 통짜(files) → 조각(parts) 순서 */
+function docFetchRemote(id){
+  if(!docsRef) return Promise.resolve(null);
+  return docsRef.child("files/"+id).once("value").then(function(s){
+    var v=s.val();
+    if(v) return v;
+    var rec=docsState.items[id]||{};
+    var n=rec.chunks||0;
+    return docsRef.child("parts/"+id).once("value").then(function(s2){
+      var o=s2.val();
+      if(!o) return null;
+      var cnt=n||Object.keys(o).length;
+      var buf=[];
+      for(var i=0;i<cnt;i++){
+        if(o["c"+i]==null) return null;      /* 조각이 빠졌으면 실패 처리 */
+        buf.push(o["c"+i]);
+      }
+      return buf.join("");
+    });
+  });
 }
 function docsStartSync(db,code){
   docsRef=db.ref("docs/"+code);
