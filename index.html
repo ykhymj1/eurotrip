@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v19.7 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v19.8 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1726,6 +1726,23 @@ function docsForItem(item,dayDate){
     if(d.type==="air"){
       if(!fit) return;               /* 항공권: 공항 출발 항목에만 (엄격) */
       res.push({d:d,sc:sc});
+      return;
+    }
+    /* v19.7 렌트카: "렌트카/렌터카"라고 적혀 있고 날짜가 맞으면 무조건 버튼을 만든다.
+       (예전에는 그 날짜에서 점수가 가장 높은 항목 1개에만 붙어서,
+        같은 날 픽업·반납이 겹치면 한쪽에 버튼이 안 생겼음)
+       한 여행에 렌트카 회사가 둘이면 브랜드가 맞는 항목에만 붙인다. */
+    if(d.type==="car"){
+      if(!fit) return;
+      var br=carBrandOf((d.name||"")+" "+(d.text||"")+" "+((d.keys||[]).join(" ")));
+      var meHit=br?brandHit(title,br):false;
+      if(br){
+        var dayHasBrand=day.items.some(function(it2){
+          return brandHit(effective(it2).title||"",br);
+        });
+        if(dayHasBrand&&!meHit) return;   /* 같은 날 해당 브랜드 항목이 따로 있으면 그쪽에만 */
+      }
+      res.push({d:d,sc:sc+(meHit?5:0)});
       return;
     }
     if(!fit&&sc<4) return;           /* 타입도 이름도 안 맞으면 제외 */
