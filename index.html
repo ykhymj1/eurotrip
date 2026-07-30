@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v20.0 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v20.1 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1621,13 +1621,22 @@ function docAddFile(file){
         size:dataUrl.length, ts:Date.now()
       };
       docsSave();
+      var big=dataUrl.length>DOC_SYNC_MAX;
+      if(big) docsState.items[id].nosync=1;
       return idbPut(id,dataUrl).then(function(){
         docLocalSet[id]=1;
         docsAutoAssign();          /* 모든 문서 기준으로 추정 날짜 재배치 */
         docsPushOne(id,dataUrl);
         if(an.type.k==="air") flightRegister(docsState.items[id]);  /* 항공권 → 추적 시작 알림 */
         msg.textContent="✅ "+an.type.ic+" "+an.type.label+" · "
-          +((an.dates&&an.dates.length)?an.dates.join(", ")+"에 자동 연결":"날짜 미확인 — 아래에서 직접 지정");
+          +((an.dates&&an.dates.length)?an.dates.join(", ")+"에 자동 연결":"날짜 미확인 — 아래에서 직접 지정")
+          +(big?" · ⚠ 용량이 커서("+Math.round(dataUrl.length/1024/1024)+"MB) 이 기기에만 저장됩니다":"");
+        docRenderList(); render();
+      }).catch(function(err){
+        /* IndexedDB 저장 실패(용량 부족 등) — 조용히 넘어가면 나중에 빈 화면이 됨 */
+        docsState.items[id].nosync=1; docsSave();
+        msg.textContent="⚠ "+file.name+" 은(는) 용량이 커서 이 기기에 저장하지 못했습니다 ("
+          +Math.round(dataUrl.length/1024/1024)+"MB). 파일을 줄여서 다시 올려주세요.";
         docRenderList(); render();
       });
     });
@@ -1819,7 +1828,8 @@ function docRenderList(){
       +'<div class="meta"><div class="nm">'+esc(d.name.replace(/\.(pdf|png|jpe?g)$/i,"").slice(0,40))+'</div>'
       +'<div class="lb">'+ti.label+(d.person?(' · '+esc(d.person)):'')+' · '+esc(dts)+' · '+Math.round(d.size/1024)+'KB · '
       +(docLocalSet[d.id]?'<span style="color:#3E7C4F;font-weight:800">✔ 오프라인 OK</span>'
-                         :'<span style="color:#B04A3A;font-weight:800">☁ 미다운로드</span>')+'</div>'
+        :(d.nosync?'<span style="color:#B04A3A;font-weight:800">⚠ 용량 초과 · 이 기기에 없음</span>'
+                  :'<span style="color:#B04A3A;font-weight:800">☁ 미다운로드</span>'))+'</div>'
       +'<select data-docdate="'+esc(d.id)+'"><option value="">날짜 지정/변경…</option>'+opts+'</select>'
       +'</div>'
       +'<button class="open" data-docopen="'+esc(d.id)+'">보기</button>'
@@ -1947,7 +1957,17 @@ function docOpen(id){
     }
     return dataUrl;
   }).then(function(dataUrl){
-    if(!dataUrl){ if(w) w.close(); alert("파일을 찾을 수 없습니다. 다른 기기에서 동기화 중일 수 있어요."); return; }
+    if(!dataUrl){
+      if(w) w.close();
+      var rc=docsState.items[id]||{};
+      if(rc.nosync||(rc.size||0)>DOC_SYNC_MAX){
+        alert("이 파일은 용량이 커서("+Math.round((rc.size||0)/1024/1024)+"MB) 기기 간 동기화가 되지 않습니다.\n\n"
+             +"처음 올린 기기에서 열거나, 이 기기에서 같은 파일을 한 번 더 올려주세요.");
+      }else{
+        alert("파일을 찾을 수 없습니다. 다른 기기에서 동기화 중일 수 있어요.");
+      }
+      return;
+    }
     var parts=dataUrl.split(","),mime=(/data:([^;]+)/.exec(parts[0])||[])[1]||"application/pdf";
     var bin=atob(parts[1]),len=bin.length,u8=new Uint8Array(len);
     for(var i=0;i<len;i++) u8[i]=bin.charCodeAt(i);
@@ -1983,13 +2003,17 @@ function refreshLocalSet(cb){
   });
 }
 function docsMissingLocal(){
-  return Object.keys(docsState.items).filter(function(k){ return !docLocalSet[k]; });
+  return Object.keys(docsState.items).filter(function(k){
+    return !docLocalSet[k]&&!(docsState.items[k]||{}).nosync;
+  });
 }
 /* 자동 일괄 다운로드 (백그라운드) — 앱을 열어두기만 하면 전부 저장됨 */
 var prefetchRunning=false, prefetchTried={};
 function docPrefetchAll(silent){
   if(!docsRef||prefetchRunning) return;
-  var miss=Object.keys(docsState.items).filter(function(k){ return !docLocalSet[k]; });
+  var miss=Object.keys(docsState.items).filter(function(k){
+    return !docLocalSet[k]&&!(docsState.items[k]||{}).nosync;   /* 용량 초과분은 받아올 수 없음 */
+  });
   if(!miss.length){
     if(!silent) status("✔ 티켓·바우처 전부 이 기기에 저장됨 (오프라인 OK)");
     return;
@@ -2086,12 +2110,26 @@ function docsFlushPendingDel(){
 }
 
 /* ---- 동기화 (docs/{code}) ---- */
+/* Firebase 실시간DB는 큰 문자열 쓰기가 실패한다.
+   base64는 원본의 약 1.37배라 8MB를 넘으면 올리지 않고 이 기기에만 둔다. */
+var DOC_SYNC_MAX=8*1024*1024;
 function docsPushOne(id,dataUrl){
   if(!docsRef||docsApplying) return;
+  var rec=docsState.items[id];
   try{
-    docsRef.child("meta/"+id).set(JSON.parse(JSON.stringify(docsState.items[id])));
-    if(dataUrl) docsRef.child("files/"+id).set(dataUrl);
-  }catch(e){}
+    if(dataUrl&&dataUrl.length>DOC_SYNC_MAX){
+      if(rec){ rec.nosync=1; docsSave(); }
+      docsRef.child("meta/"+id).set(JSON.parse(JSON.stringify(rec)));
+      return;                                   /* 파일 본체는 올리지 않음 */
+    }
+    docsRef.child("meta/"+id).set(JSON.parse(JSON.stringify(rec)));
+    if(dataUrl){
+      var pr=docsRef.child("files/"+id).set(dataUrl);
+      if(pr&&pr.catch) pr.catch(function(){
+        if(rec){ rec.nosync=1; docsSave(); try{ docRenderList(); }catch(e2){} }
+      });
+    }
+  }catch(e){ if(rec){ rec.nosync=1; docsSave(); } }
 }
 function docsStartSync(db,code){
   docsRef=db.ref("docs/"+code);
@@ -2558,6 +2596,7 @@ function emptyHTML(){
 }
 
 function render(){
+  tripsDedupe();
   docsReanalyzeIfNeeded();
   var trip=currentTrip();
   if(trip) currentId=trip.id;
@@ -2862,6 +2901,28 @@ function parseItinerary(lines,tripId){
   return {days:days, nameLine:nameLine};
 }
 
+/* 여행 이름 비교용 정규화 키 (공백·기호 무시) */
+function tripNameKey(s){
+  return String(s||"").toLowerCase().replace(/[\s·・‧\-_()\[\]]/g,"");
+}
+/* 같은 이름이 여러 개 남아 있으면 가장 최근 것만 남김 */
+function tripsDedupe(){
+  var seen={}, keep=[], changed=false;
+  trips.slice().sort(function(a,b){ return (b.updatedAt||0)-(a.updatedAt||0); }).forEach(function(t){
+    var k=tripNameKey(t.name);
+    if(seen[k]){ deletedTrips[t.id]=Date.now(); cleanupTripData(t.id); changed=true; return; }
+    seen[k]=1; keep.push(t);
+  });
+  if(changed){
+    trips=trips.filter(function(t){ return keep.indexOf(t)>=0; });
+    save(LS_TRIPS,trips); save(LS_DEL,deletedTrips);
+    if(!trips.find(function(t){ return t.id===currentId; })){
+      currentId=trips.length?trips[0].id:null; save(LS_CUR,currentId);
+    }
+  }
+  return changed;
+}
+
 function cleanupTripData(tripId){
   Object.keys(edits).forEach(function(k){ if(k.indexOf(tripId+"_")===0) delete edits[k]; });
   Object.keys(done).forEach(function(k){ if(k.indexOf(tripId+"_")===0) delete done[k]; });
@@ -2901,14 +2962,16 @@ function handlePdf(file){
     var name=(parsed.nameLine||file.name.replace(/\.pdf$/i,"")).slice(0,40);
 
     /* 같은 이름 여행 → 업데이트(덮어쓰기) */
-    var existing=trips.find(function(t){ return t.name===name; });
-    if(existing){
-      if(!confirm("\""+name+"\" 여행이 이미 있습니다.\n새 PDF 내용으로 업데이트할까요?\n(체크·메모는 초기화됩니다)")){
+    /* v20.1: 이름 비교를 정규화(공백·기호 무시)하고, 이미 여러 개면 전부 교체 */
+    var nk=tripNameKey(name);
+    var dups=trips.filter(function(t){ return tripNameKey(t.name)===nk; });
+    if(dups.length){
+      if(!confirm("\""+name+"\" 여행이 이미 "+dups.length+"개 있습니다.\n새 PDF 내용으로 교체할까요?\n(체크·메모는 초기화됩니다)")){
         status("업데이트 취소됨"); return;
       }
-      cleanupTripData(existing.id);
-      trips=trips.filter(function(t){ return t.id!==existing.id; });
-      deletedTrips[existing.id]=Date.now(); save(LS_DEL,deletedTrips); /* 다른 기기에서 부활 방지 */
+      dups.forEach(function(t){ cleanupTripData(t.id); deletedTrips[t.id]=Date.now(); });
+      save(LS_DEL,deletedTrips);
+      trips=trips.filter(function(t){ return tripNameKey(t.name)!==nk; });
     }
 
     var count=parsed.days.reduce(function(a,d){ return a+d.items.length; },0);
