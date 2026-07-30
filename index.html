@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v19.9 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v20.0 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1666,7 +1666,15 @@ function docsReanalyzeLegacy(){
   var changed=false;
   Object.keys(docsState.items).forEach(function(k){
     var d=docsState.items[k];
-    if(d.tripId&&d.tripId!==trip.id) return;   /* 다른 여행 문서는 건드리지 않음 */
+    /* 일정표를 다시 올리면 여행 id가 바뀌므로 id만으로 거르면 안 됨.
+       날짜가 이 여행과 겹치거나 날짜가 없으면 이 여행 문서로 본다. */
+    if(d.tripId&&d.tripId!==trip.id){
+      var dd0=d.dates||[];
+      var overlap=dd0.length?dd0.some(function(x){
+        return trip.days.some(function(y){ return y.date===x; }); }):true;
+      if(!overlap) return;
+      d.tripId=trip.id;
+    }
     if(d.manual){ if(d.av!==DOC_AV){ d.av=DOC_AV; changed=true; } return; }
     var noKeys=(!d.keys||!d.keys.length);
     var noDates=(!d.dates||!d.dates.length);
@@ -1752,6 +1760,12 @@ function docsForItem(item,dayDate){
   Object.keys(docsState.items).forEach(function(k){
     var d=docsState.items[k];
     var dts=d.dates||(d.date?[d.date]:[]);
+    if(d.type==="car"){
+      /* v19.9: 렌트카는 저장된 날짜가 낡아 있어도 되도록,
+         지금 일정표에서 그 회사의 픽업~반납 구간을 즉석에서 계산해 쓴다. */
+      var liveSpan=carSpanDates(trip,carBrandOf((d.name||"")+" "+(d.text||"")));
+      if(liveSpan.length) dts=liveSpan;
+    }
     if(dts.indexOf(dayDate)<0) return;
     var fit=docTypeFitsItem(d.type,item,title);
     var sc=docKeyScore(d.keys,title);
