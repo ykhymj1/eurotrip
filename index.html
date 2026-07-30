@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v19.8 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v19.9 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1078,6 +1078,9 @@ function buildDayRoute(day,car,cityMap){
 
 /* ================= v13 티켓·바우처 보관함 ================= */
 var LS_DOCS="wtrip_docs_v13";
+/* v19.8: 분석 로직 버전. 올리면 이미 저장된 바우처를 다시 분석한다.
+   (렌트카 구간·기차표 인식 등은 업로드 시점 로직으로 저장돼 있어 갱신이 필요함) */
+var DOC_AV=3;
 var docsState=loadObj(LS_DOCS,{items:{},del:{}});
 if(!docsState.items) docsState.items={};
 if(!docsState.del) docsState.del={};
@@ -1402,6 +1405,13 @@ function carBrandOf(s){
   }
   return null;
 }
+/* 오타를 견디며 브랜드를 되돌려줌 (Eeterprise → enterprise) */
+function carBrandFuzzy(s){
+  var b=carBrandOf(s);
+  if(b) return b;
+  for(var i=0;i<CAR_BRANDS.length;i++) if(brandHit(s,CAR_BRANDS[i])) return CAR_BRANDS[i];
+  return null;
+}
 /* 오타 1~2자를 견디는 부분일치 (enterprise ↔ Eeterprise) */
 function brandHit(title,brand){
   var t=String(title||"").toLowerCase().replace(/[^a-z가-힣]/g,"");
@@ -1605,7 +1615,7 @@ function docAddFile(file){
       docsState.items[id]={
         id:id, tripId:trip?trip.id:"", name:file.name,
         type:an.type.k, dates:an.dates||[], keys:an.keys||[], auto:!!an.auto,
-        person:an.person||"",
+        person:an.person||"", av:DOC_AV,
         text:(text||"").slice(0,4000),
         mime:file.type||"application/pdf",
         size:dataUrl.length, ts:Date.now()
@@ -1640,23 +1650,45 @@ function docTypeInfo(k){
           etc:{ic:"📎",label:"기타"}}[k]||{ic:"📎",label:"기타"};
 }
 /* 구버전에서 올려 keys/dates가 없는 문서를 저장된 text로 재분석 */
+/* v19.8: 여행이 바뀌거나 앱이 새로 열릴 때 한 번씩 자동 재분석
+   (예전 버전에서 올린 바우처의 날짜·종류가 낡은 채로 남아 있어 버튼이 안 생기던 문제) */
+var docReanTrip=null;
+function docsReanalyzeIfNeeded(){
+  var t=currentTrip();
+  if(!t||docReanTrip===t.id) return;
+  docReanTrip=t.id;
+  try{ docsReanalyzeLegacy(); docsAutoAssign(); }catch(e){}
+}
+
 function docsReanalyzeLegacy(){
   var trip=currentTrip();
   if(!trip) return;
   var changed=false;
   Object.keys(docsState.items).forEach(function(k){
     var d=docsState.items[k];
-    if(d.manual) return; /* 사용자가 직접 지정한 건 건드리지 않음 */
+    if(d.tripId&&d.tripId!==trip.id) return;   /* 다른 여행 문서는 건드리지 않음 */
+    if(d.manual){ if(d.av!==DOC_AV){ d.av=DOC_AV; changed=true; } return; }
     var noKeys=(!d.keys||!d.keys.length);
     var noDates=(!d.dates||!d.dates.length);
     var noPerson=(d.person===undefined&&d.type==="air");
-    if(noKeys||noDates||noPerson){
+    var stale=(d.av!==DOC_AV);
+    if(stale||noKeys||noDates||noPerson){
       var an=analyzeDoc(d.text||"",d.name||"",trip);
-      if(noKeys) d.keys=an.keys;
-      if(!d.person&&an.person) d.person=an.person;
-      if(noDates&&an.dates&&an.dates.length){ d.dates=an.dates; d.auto=!!an.auto; }
-      if(!d.type||d.type==="etc") d.type=an.type.k;
-      if(d.person===undefined) d.person=an.person||"";
+      if(stale){
+        /* 분석 로직이 바뀜 → 종류·키워드·날짜를 새로 계산한 값으로 교체 */
+        if(an.type&&an.type.k) d.type=an.type.k;
+        d.keys=an.keys||d.keys||[];
+        if(an.dates&&an.dates.length){ d.dates=an.dates; d.auto=!!an.auto; }
+        if(an.person) d.person=an.person;
+        if(d.person===undefined) d.person="";
+      }else{
+        if(noKeys) d.keys=an.keys;
+        if(!d.person&&an.person) d.person=an.person;
+        if(noDates&&an.dates&&an.dates.length){ d.dates=an.dates; d.auto=!!an.auto; }
+        if(!d.type||d.type==="etc") d.type=an.type.k;
+        if(d.person===undefined) d.person=an.person||"";
+      }
+      d.av=DOC_AV;
       changed=true;
     }
   });
@@ -1735,14 +1767,15 @@ function docsForItem(item,dayDate){
     if(d.type==="car"){
       if(!fit) return;
       var br=carBrandOf((d.name||"")+" "+(d.text||"")+" "+((d.keys||[]).join(" ")));
+      var itemBr=carBrandFuzzy(title);          /* 항목에 적힌 회사 (오타 허용) */
       var meHit=br?brandHit(title,br):false;
-      if(br){
-        var dayHasBrand=day.items.some(function(it2){
-          return brandHit(effective(it2).title||"",br);
-        });
-        if(dayHasBrand&&!meHit) return;   /* 같은 날 해당 브랜드 항목이 따로 있으면 그쪽에만 */
+      if(br&&itemBr&&br[0]!==itemBr[0]) return; /* 회사가 다르면 붙이지 않음 */
+      if(br&&!itemBr){
+        /* 항목에 회사가 안 적혀 있으면, 같은 날 그 회사 항목이 따로 있을 때만 양보 */
+        var dayHasBrand=day.items.some(function(it2){ return brandHit(effective(it2).title||"",br); });
+        if(dayHasBrand) return;
       }
-      res.push({d:d,sc:sc+(meHit?5:0)});
+      res.push({d:d,sc:sc+(meHit||(br&&itemBr&&br[0]===itemBr[0])?5:0)});
       return;
     }
     if(!fit&&sc<4) return;           /* 타입도 이름도 안 맞으면 제외 */
@@ -2511,6 +2544,7 @@ function emptyHTML(){
 }
 
 function render(){
+  docsReanalyzeIfNeeded();
   var trip=currentTrip();
   if(trip) currentId=trip.id;
   var main=document.getElementById("main");
