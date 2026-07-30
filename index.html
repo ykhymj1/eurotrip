@@ -201,6 +201,13 @@ section.day{margin-bottom:26px}
 .docchip{cursor:pointer;background:#DFE9F2 !important;color:#2E6DA4 !important}
 .doc-btn{flex:0 0 auto;border:1.5px solid #2E6DA4;background:#E3EDF4;color:#2E6DA4;
   border-radius:10px;padding:11px 12px;font-size:14px;font-weight:700;cursor:pointer}
+.pick-row{display:flex;align-items:center;gap:10px;padding:14px 12px;margin:8px 0;
+  border:1.5px solid #D8DEE6;border-radius:12px;background:#fff;cursor:pointer}
+.pick-row:active{background:#EEF3F8}
+.pick-row .pic{font-size:22px;flex:0 0 auto}
+.pick-row .nm{font-weight:800;font-size:15px;color:#22303F}
+.pick-row .sb{font-size:12.5px;color:#6B7885;margin-top:2px}
+.pick-row .go{margin-left:auto;font-weight:800;color:#2E6DA4;flex:0 0 auto}
 .doc-drop{border:2px dashed var(--line);border-radius:12px;padding:18px 12px;text-align:center;
   color:var(--sub);font-size:13.5px;font-weight:700;cursor:pointer;margin:10px 0 14px;line-height:1.6}
 .doc-drop:hover{border-color:#2E6DA4;color:#2E6DA4}
@@ -281,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v18.2 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v19.1 · ✈️ 항공편 추적 · 탑승자별 항공권 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -320,6 +327,16 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
   </div>
 </div>
 <input type="file" id="docFile" accept="application/pdf,image/*" multiple style="display:none">
+
+<!-- 여러 문서가 한 항목에 붙은 경우 선택창 (탑승자별 항공권 등) -->
+<div class="overlay" id="docPickOverlay">
+  <div class="sheet">
+    <h3 id="docPickTitle">문서 선택</h3>
+    <div class="hint" id="docPickSub" style="margin-top:2px"></div>
+    <div id="docPickList"></div>
+    <button class="close-btn" id="docPickClose">닫기</button>
+  </div>
+</div>
 
 <!-- QR 지갑 모달 -->
 <div class="overlay" id="qrOverlay">
@@ -958,6 +975,37 @@ function datesFromFileName(fileName,trip){
   return out;
 }
 
+/* 항공권 등에서 탑승자 이름 추출 (YOU/KYUNGHO MR → KYUNGHO) */
+var PERSON_STOP=/^(ITINERARY|RECEIPT|CITY|AIRPORT|DATE|TIME|FLIGHT|CLASS|STATUS|FARE|BAGGAGE|NAME|TICKET|CARRIER|SEAT|GATE|TERMINAL|FROM|DEPARTURE|ARRIVAL|BOOKING|PNR|TOTAL|TAX|CODE|NUMBER|TYPE|INFO|NOTE|PAGE|EMAIL|PHONE)$/;
+function docPerson(text,fileName){
+  var t=String(text||"");
+  var m,best="";
+  /* 1순위: 경칭(MR/MS/MRS)이 붙은 LAST/FIRST */
+  var re1=/\b([A-Z][A-Z\-]{1,})\s*\/\s*([A-Z][A-Z\-]{1,})\s*(MR|MS|MRS|MSTR)\b/g;
+  while((m=re1.exec(t))!==null){
+    if(PERSON_STOP.test(m[1])||PERSON_STOP.test(m[2])) continue;
+    best=m[2]; break;
+  }
+  /* 2순위: 경칭 없는 LAST/FIRST (불용어 제외) */
+  if(!best){
+    var re2=/\b([A-Z][A-Z\-]{2,})\s*\/\s*([A-Z][A-Z\-]{2,})\b/g;
+    while((m=re2.exec(t))!==null){
+      if(PERSON_STOP.test(m[1])||PERSON_STOP.test(m[2])) continue;
+      best=m[2]; break;
+    }
+  }
+  /* 3순위: 파일명의 이니셜·이름 */
+  if(!best){
+    var f=String(fileName||"");
+    var fm=/(YKH|YMJ|ykh|ymj|경호|미정)/.exec(f);
+    if(fm) best=fm[1].toUpperCase();
+  }
+  if(!best) return "";
+  best=best.replace(/\-/g," ").trim();
+  /* 보기 좋게: 첫 글자만 대문자 */
+  return best.charAt(0)+best.slice(1).toLowerCase();
+}
+
 function analyzeDoc(text,fileName,trip){
   var type=docType(text,fileName);
   var keys=docKeywords(text,fileName);
@@ -1091,7 +1139,7 @@ function analyzeDoc(text,fileName,trip){
       dates=valid;
     }
   }
-  return {type:type,dates:dates,keys:keys,auto:autoGuess};
+  return {type:type,dates:dates,keys:keys,auto:autoGuess,person:docPerson(text,fileName)};
 }
 
 /* ---- PDF 텍스트 추출 ---- */
@@ -1134,6 +1182,7 @@ function docAddFile(file){
       docsState.items[id]={
         id:id, tripId:trip?trip.id:"", name:file.name,
         type:an.type.k, dates:an.dates||[], keys:an.keys||[], auto:!!an.auto,
+        person:an.person||"",
         text:(text||"").slice(0,4000),
         mime:file.type||"application/pdf",
         size:dataUrl.length, ts:Date.now()
@@ -1143,6 +1192,7 @@ function docAddFile(file){
         docLocalSet[id]=1;
         docsAutoAssign();          /* 모든 문서 기준으로 추정 날짜 재배치 */
         docsPushOne(id,dataUrl);
+        if(an.type.k==="air") flightRegister(docsState.items[id]);  /* 항공권 → 추적 시작 알림 */
         msg.textContent="✅ "+an.type.ic+" "+an.type.label+" · "
           +((an.dates&&an.dates.length)?an.dates.join(", ")+"에 자동 연결":"날짜 미확인 — 아래에서 직접 지정");
         docRenderList(); render();
@@ -1176,11 +1226,14 @@ function docsReanalyzeLegacy(){
     if(d.manual) return; /* 사용자가 직접 지정한 건 건드리지 않음 */
     var noKeys=(!d.keys||!d.keys.length);
     var noDates=(!d.dates||!d.dates.length);
-    if(noKeys||noDates){
+    var noPerson=(d.person===undefined&&d.type==="air");
+    if(noKeys||noDates||noPerson){
       var an=analyzeDoc(d.text||"",d.name||"",trip);
       if(noKeys) d.keys=an.keys;
+      if(!d.person&&an.person) d.person=an.person;
       if(noDates&&an.dates&&an.dates.length){ d.dates=an.dates; d.auto=!!an.auto; }
       if(!d.type||d.type==="etc") d.type=an.type.k;
+      if(d.person===undefined) d.person=an.person||"";
       changed=true;
     }
   });
@@ -1277,7 +1330,7 @@ function docRenderList(){
     h+='<div class="doc-row">'
       +'<span class="ic">'+ti.ic+'</span>'
       +'<div class="meta"><div class="nm">'+esc(d.name.replace(/\.(pdf|png|jpe?g)$/i,"").slice(0,40))+'</div>'
-      +'<div class="lb">'+ti.label+' · '+esc(dts)+' · '+Math.round(d.size/1024)+'KB · '
+      +'<div class="lb">'+ti.label+(d.person?(' · '+esc(d.person)):'')+' · '+esc(dts)+' · '+Math.round(d.size/1024)+'KB · '
       +(docLocalSet[d.id]?'<span style="color:#3E7C4F;font-weight:800">✔ 오프라인 OK</span>'
                          :'<span style="color:#B04A3A;font-weight:800">☁ 미다운로드</span>')+'</div>'
       +'<select data-docdate="'+esc(d.id)+'"><option value="">날짜 지정/변경…</option>'+opts+'</select>'
@@ -1307,6 +1360,54 @@ function docOpenWallet(date){
   document.getElementById("docMsg").textContent="";
   docOverlay.classList.add("show");
 }
+/* 항공권 업로드 시 Worker에 등록 → 인식 결과를 텔레그램으로 확인 */
+function flightRegister(doc){
+  if(!doc||!AI_WORKER) return;
+  var trip=currentTrip();
+  var dates=(doc.dates&&doc.dates.length)?doc.dates:(trip?trip.days.map(function(d){return d.date;}):[]);
+  fetch(AI_WORKER+"/flight-register",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({ text:(doc.text||"").slice(0,4000), person:doc.person||"", dates:dates })
+  }).then(function(r){ return r.json(); }).then(function(j){
+    if(j&&j.ok&&j.flights&&j.flights.length){
+      doc.flights=j.flights.map(function(f){ return f.flight+" "+f.date; });
+      docsSave();
+      status("✈️ 항공편 "+j.flights.length+"편 추적 시작 · 텔레그램 확인");
+    }else{
+      status("⚠ 항공권에서 편명을 찾지 못했습니다 — 보관함에서 날짜를 지정해 주세요");
+    }
+  }).catch(function(){ /* 오프라인 등 — 다음 점검 때 자동 처리 */ });
+}
+
+/* 한 항목에 여러 문서가 붙은 경우 선택창 (탑승자별 항공권 등) */
+var docPickOverlay=document.getElementById("docPickOverlay");
+function docPickShow(ids,itemTitle){
+  var list=document.getElementById("docPickList");
+  var h="";
+  ids.forEach(function(id){
+    var d=docsState.items[id];
+    if(!d) return;
+    var ti=docTypeInfo(d.type);
+    var nm=d.person?(d.person+" "+ti.label):ti.label;
+    var sub=(d.name||"").replace(/\.(pdf|png|jpe?g)$/i,"");
+    if(sub.length>40) sub=sub.slice(0,40)+"…";
+    h+='<div class="pick-row" data-pickopen="'+esc(id)+'">'
+      +'<span class="pic">'+ti.ic+'</span>'
+      +'<div><div class="nm">'+esc(nm)+'</div><div class="sb">'+esc(sub)+'</div></div>'
+      +'<span class="go">열기 ›</span></div>';
+  });
+  list.innerHTML=h;
+  document.getElementById("docPickTitle").textContent="문서 선택 ("+ids.length+"개)";
+  document.getElementById("docPickSub").textContent=itemTitle
+    ? (itemTitle.slice(0,40)+" 에 연결된 문서입니다. 열 문서를 선택하세요.")
+    : "열 문서를 선택하세요.";
+  docPickOverlay.classList.add("show");
+}
+function docPickHide(){ docPickOverlay.classList.remove("show"); }
+document.getElementById("docPickClose").addEventListener("click",docPickHide);
+docPickOverlay.addEventListener("click",function(e){ if(e.target===docPickOverlay) docPickHide(); });
+
 function docOpen(id){
   var w=window.open("","_blank"); /* 팝업 차단 회피: 클릭 시점에 미리 열기 */
   idbGet(id).then(function(dataUrl){
@@ -1897,8 +1998,16 @@ function itemHTML(item,dateKey,kind,computedWalk,an){
   var myDocs=docsForItem(item,dateKey);
   if(myDocs.length){
     var dti=docTypeInfo(myDocs[0].type);
-    btns+='<button class="doc-btn '+esc(myDocs[0].type||"")+'" data-docopen="'+esc(myDocs[0].id)+'">'
-      +dti.ic+' '+dti.label+(myDocs.length>1?' +'+(myDocs.length-1):'')+'</button>';
+    if(myDocs.length===1){
+      var lbl1=myDocs[0].person?(myDocs[0].person+" "+dti.label):dti.label;
+      btns+='<button class="doc-btn '+esc(myDocs[0].type||"")+'" data-docopen="'+esc(myDocs[0].id)+'">'
+        +dti.ic+' '+esc(lbl1)+'</button>';
+    }else{
+      var ids=myDocs.map(function(d){ return d.id; }).join(",");
+      btns+='<button class="doc-btn '+esc(myDocs[0].type||"")+'" data-docmulti="'+esc(ids)+'"'
+        +' data-docitem="'+esc(e.title||"")+'">'
+        +dti.ic+' '+dti.label+' '+myDocs.length+'</button>';
+    }
   }
   btns+='<button class="edit-btn" data-edit="'+item.id+'">✏️</button>';
   btns+='<button class="del-btn" data-del="'+item.id+'">🗑</button>';
@@ -2057,10 +2166,29 @@ function parseItinerary(lines,tripId){
 
   function makeItem(time,rawTitle){
     var t=rawTitle.trim().replace(/^[·\-–:،,]+\s*/,"");
+    /* 종류 라벨 프리픽스 인식 (YKH 설계소 형식: "이동 간사이...", "식당 점심...", "문화 도다이지...") */
+    var labelHint=null;
+    var lm=/^(이동|식당|문화|전망대|렌트카|렌터카|호텔|숙소|항공편|쇼핑|온천|휴식|하이킹|산책)\s+(.+)$/.exec(t);
+    if(lm){
+      labelHint=lm[1];
+      var rest2=lm[2].trim();
+      /* 라벨을 떼면 제목이 부실해지는 경우(반납/픽업/출발 등)엔 라벨을 제목에 유지 */
+      if(rest2.length<=6||/^(반납|픽업|출발|도착|체크인|체크아웃)/.test(rest2)) t=lm[1]+" "+rest2;
+      else t=rest2;
+    }
     var coord=pullCoord(t);
     if(coord) t=coord.text;
     var base={id:tripId+"_"+(seq++), time:time, title:t||"(제목 없음)", desc:""};
     var c=classify(t);
+    /* 라벨 힌트로 분류 보정 */
+    if(labelHint){
+      if(/식당/.test(labelHint)) c={type:"spot",mode:"d",meal:true};
+      else if(/전망대|하이킹|산책/.test(labelHint)) c={type:"spot",mode:"d"};
+      else if(/문화/.test(labelHint)) c={type:"spot",mode:"d"};
+      else if(/호텔|숙소/.test(labelHint)&&!/체크아웃/.test(t)) c={type:"hotel"};
+      else if(/렌트카|렌터카/.test(labelHint)) c={type:"spot",mode:"d"};
+      else if(/이동/.test(labelHint)) c={type:"info"};
+    }
     for(var key in c) base[key]=c[key];
     if(coord){ base.lat=coord.lat; base.lng=coord.lng; }
     if(/예약\s*필수/.test(t)) base.book=true;
@@ -2087,6 +2215,12 @@ function parseItinerary(lines,tripId){
   lines.forEach(function(raw){
     var line=raw.replace(/\s+/g," ").trim();
     if(!line) return;
+    /* "DAY 1 | 10월 3일(금) — ..." 또는 "10월 3일(금)" → "10/3 금 ..." 정규화 */
+    var dayM=/^(?:DAY\s*\d+\s*[|｜]\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*\(?([월화수목금토일])?\)?\s*[—\-–]*\s*(.*)$/.exec(line);
+    if(dayM&&+dayM[1]>=1&&+dayM[1]<=12&&+dayM[2]>=1&&+dayM[2]<=31){
+      line=dayM[1]+"/"+dayM[2]+(dayM[3]?" "+dayM[3]:" 　")+" "+(dayM[4]||"");
+      line=line.trim();
+    }
     var dre=/\d{1,2}\s*\/\s*\d{1,2}\s*\(?[월화수목금토일]\)?(?![가-힣])/g, cuts=[], mm;
     while((mm=dre.exec(line))!==null){ if(mm.index>0) cuts.push(mm.index); }
     var prev=0;
@@ -2121,11 +2255,30 @@ function parseItinerary(lines,tripId){
     while((m=re.exec(masked))!==null){
       if(+m[1]<=23&&+m[2]<=59) tok.push({i:m.index,len:m[0].length,h:+m[1],mm:m[2]});
     }
+    /* 문장 속 시간("현지 시각 10:00입니다") 제외:
+       시간 앞부분이 한국어 문장(조사·서술어 등 실제 텍스트)이면 이 줄은 설명으로 처리.
+       단, 날짜라벨·라벨힌트·기호만 있는 경우는 정상 항목으로 인정. */
+    if(tok.length){
+      var head=line.slice(0,tok[0].i).trim();
+      var headClean=head.replace(/^[월화수목금토일\s·\-–—:|　]+/,"").trim();
+      /* 시간 앞에 한글 3자 이상 실단어가 있으면 문장 중간 시간으로 판단 */
+      if(headClean.length>=3&&/[가-힣]{2,}/.test(headClean)){ tok=[]; }
+    }
     if(tok.length===0){
       var c2=pullCoord(line);
       /* 1) 좌표만 단독인 줄 */
       if(c2&&c2.text.length<=2){
         if(curItem&&curItem.lat==null){ curItem.lat=c2.lat; curItem.lng=c2.lng; return; }
+        /* 직전 항목에 이미 좌표가 있으면, 그 사이 설명줄 때문에 밀린 것 —
+           마지막으로 시간을 가진 항목이 좌표가 없으면 거기에 붙임 (YKH 설계소 형식) */
+        if(curItem&&curItem.lat!=null&&curDay&&curDay.items.length){
+          for(var bi=curDay.items.length-1;bi>=0;bi--){
+            if(curDay.items[bi].lat==null&&curDay.items[bi].time&&curDay.items[bi].time!=="—"){
+              curDay.items[bi].lat=c2.lat; curDay.items[bi].lng=c2.lng; return;
+            }
+            if(curDay.items[bi].lat!=null) break;
+          }
+        }
         if(curItem&&curItem._lc){ promoteLastChunk(c2,""); }
         return;
       }
@@ -3088,6 +3241,11 @@ document.body.addEventListener("click",function(ev){
   var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll],[data-qrdate],[data-qropen],[data-qrdel],[data-docdate2],[data-docopen],[data-docdel]");
   if(!el) return;
   if(el.dataset.docdate2){ docOpenWallet(el.dataset.docdate2); return; }
+  if(el.dataset.pickopen){ docPickHide(); docOpen(el.dataset.pickopen); return; }
+  if(el.dataset.docmulti){
+    var _ids=el.dataset.docmulti.split(",");
+    docPickShow(_ids,el.dataset.docitem||""); return;
+  }
   if(el.dataset.docopen){ docOpen(el.dataset.docopen); return; }
   if(el.dataset.docdel){
     var _dd=docsState.items[el.dataset.docdel];
