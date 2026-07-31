@@ -1,5 +1,5 @@
 /* 여행 일정 네비 PWA - Service Worker */
-var CACHE = "wtrip-v22.5-20260731";
+var CACHE = "wtrip-v22.6-20260731";
 var ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./icon-180.png"];
 
 self.addEventListener("install", function (e) {
@@ -16,6 +16,11 @@ self.addEventListener("activate", function (e) {
         if (k !== CACHE) return caches.delete(k);
       }));
     }).then(function () { return self.clients.claim(); })
+      .then(function () {
+        return self.clients.matchAll({ type: "window" }).then(function (cs) {
+          cs.forEach(function (c) { c.postMessage({ type: "sw-updated", cache: CACHE }); });
+        });
+      })
   );
 });
 
@@ -23,8 +28,14 @@ self.addEventListener("activate", function (e) {
 self.addEventListener("fetch", function (e) {
   if (e.request.method !== "GET") return;
   if (!e.request.url.startsWith(self.location.origin)) return;
+  /* v22.6 GitHub Pages 는 HTML 에 Cache-Control: max-age 를 붙인다.
+     그대로 두면 서비스워커가 fetch 해도 브라우저 HTTP 캐시의 옛 index.html 이 와서
+     새 파일을 올려도 옛 버전이 계속 보인다. → 문서 요청은 캐시를 건너뛴다. */
+  var isDoc = (e.request.mode === "navigate") ||
+              /(\/|\.html)$/.test(new URL(e.request.url).pathname);
+  var req = isDoc ? new Request(e.request.url, { cache: "no-store" }) : e.request;
   e.respondWith(
-    fetch(e.request).then(function (res) {
+    fetch(req).then(function (res) {
       var copy = res.clone();
       caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
       return res;

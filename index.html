@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v22.5 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v22.6 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -3711,7 +3711,45 @@ function lookupInfo(item,query,enQuery){
     });
 }
 
-var AI_WORKER="https://travel-ai.kyunghoyou.workers.dev"; /* Worker 배포 후 주소가 다르면 여기만 수정 */
+var AI_WORKER="https://travel-ai.kyunghoyou.workers.dev";
+
+/* ===== v22.6 배포 확인 =====
+   index.html 과 sw.js 를 따로 복사·붙여넣기 하다 보니 한쪽만 갱신되거나,
+   브라우저가 옛 index.html 을 캐시해 새 버전이 안 보이는 일이 잦다.
+   두 파일의 버전을 비교해 어긋나면 화면에 바로 알린다. */
+var APP_VER=(function(){
+  var f=document.querySelector("footer");
+  var m=f&&f.textContent.match(/v(\d+\.\d+)/);
+  return m?m[1]:"?";
+})();
+function swVersionCheck(){
+  if(!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.addEventListener("message",function(ev){
+    var d=ev&&ev.data;
+    if(!d||d.type!=="sw-updated") return;
+    var m=String(d.cache||"").match(/v(\d+\.\d+)/);
+    var swv=m?m[1]:"?";
+    if(swv!==APP_VER){
+      status("⚠ 버전 불일치 — 화면 v"+APP_VER+" / 캐시 v"+swv+" · 두 파일을 함께 올려주세요");
+    }else{
+      status("✅ v"+APP_VER+" 적용됨 — 새로고침 완료");
+    }
+  });
+  /* 페이지가 열릴 때도 한 번 확인 */
+  setTimeout(function(){
+    try{
+      caches.keys().then(function(keys){
+        var hit=keys.filter(function(k){ return k.indexOf("wtrip-")===0; }).sort().pop();
+        if(!hit) return;
+        var m=hit.match(/v(\d+\.\d+)/);
+        var swv=m?m[1]:"?";
+        if(swv!==APP_VER)
+          status("⚠ 버전 불일치 — 화면 v"+APP_VER+" / 캐시 v"+swv+" · sw.js 도 함께 올려주세요");
+      });
+    }catch(e){}
+  },2500);
+}
+swVersionCheck(); /* Worker 배포 후 주소가 다르면 여기만 수정 */
 var LS_AI="wtrip_ai_v9";
 var aiCache=loadObj(LS_AI,{});
 var aiCurrent=null; /* {item, wikiExtract, key} */
@@ -4366,6 +4404,7 @@ document.getElementById("infoClearBtn").addEventListener("click",function(){
 document.getElementById("diagBtn").addEventListener("click",function(){
   var b=loadObj(LS_TRIPBAK,null);
   var lines=[
+    "앱 v"+APP_VER,
     "여행 "+trips.length+"개"+(trips.length?(" ("+trips.map(function(t){ return t.name+"/"+t.days.length+"일"; }).join(", ")+")"):""),
     "현재 선택: "+(currentTrip()?currentTrip().name:"(없음)")+"  id="+currentId,
     "백업: "+(b&&b.trips?b.trips.length+"개":"없음"),
