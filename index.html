@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v22.3 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v22.4 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -3976,6 +3976,8 @@ function prefetchTargets(){
           out.push({item:it,k:k,tid:t.id,needWiki:false,needAi:false,needPlace:true});
           return;
         }
+        var pk="place|"+(it.lat!=null?it.lat.toFixed(4)+","+it.lng.toFixed(4)+"|":"")+k.query;
+        if(wikiCache[pk]) return;              /* 구글 후기(또는 자료 없음)로 이미 해결됨 */
         var needWiki=!wikiCache[k.wiki];
         var needAi=!!AI_WORKER&&!aiCache[k.ai];
         if(needWiki||needAi) out.push({item:it,k:k,tid:t.id,needWiki:needWiki,needAi:needAi});
@@ -4048,14 +4050,54 @@ function placePrefetch(silent){
       return;
     }
 
+    /* v22.4 위키가 없거나 엉뚱하면 화면(showInfo)과 똑같이 구글 지도 후기로 넘어간다.
+       예전에는 실패해도 아무것도 저장하지 않아 "n곳 남음"이 영원히 사라지지 않고,
+       앱을 열 때마다 같은 곳을 다시 조회했다. */
+    var placeKey=(function(){
+      var it=t.item;
+      return "place|"+(it.lat!=null?it.lat.toFixed(4)+","+it.lng.toFixed(4)+"|":"")+t.k.query;
+    })();
+    function fallbackToPlace(why){
+      if(wikiCache[placeKey]) return Promise.resolve(wikiCache[placeKey]);
+      if(!AI_WORKER||!navigator.onLine) return Promise.resolve(null);
+      var it=t.item;
+      return fetch(AI_WORKER,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          name:(placeQuery(it)||t.k.query), kind:"place",
+          lat:it.lat!=null?it.lat:null, lng:it.lat!=null?it.lng:null, wiki:""
+        })
+      }).then(function(r){ return r.json(); }).then(function(j){
+        var txt=(j&&j.summary)||"";
+        if(txt&&!/찾지 못했습니다/.test(txt)){
+          wikiCache[placeKey]={extract:txt,img:"",url:"",
+            srcNote:"구글 지도 리뷰 + 네이버 블로그·카페 (AI 정리)"+(why?" · "+why:""),
+            _tid:t.tid,_t:Date.now()};
+          ok++;
+        }else{
+          wikiCache[placeKey]={extract:"",none:1,srcNote:"자료 없음",_tid:t.tid,_t:Date.now()};
+          none++;
+        }
+        return wikiCache[placeKey];
+      }).catch(function(){ return null; });
+    }
     var wikiStep=t.needWiki
       ? lookupInfo(t.item,t.k.query,t.k.enQuery).then(function(data){
+          var weak=wikiWeak(data,effective(t.item).title,t.k.query);
+          if(weak) return fallbackToPlace(weak);
           data._tid=t.tid; data._t=Date.now();
           wikiCache[t.k.wiki]=data; return data;
         }).catch(function(){
-          var tpl=typeTemplate(effective(t.item).title);
-          if(tpl){ tpl._tid=t.tid; tpl._t=Date.now(); wikiCache[t.k.wiki]=tpl; }
-          return tpl||null;
+          return fallbackToPlace("위키 문서 없음").then(function(r){
+            if(r) return r;
+            var tpl=typeTemplate(effective(t.item).title);
+            if(tpl){ tpl._tid=t.tid; tpl._t=Date.now(); wikiCache[t.k.wiki]=tpl; return tpl; }
+            /* 끝내 못 찾으면 결과를 남겨 재조회를 멈춘다 */
+            wikiCache[placeKey]={extract:"",none:1,srcNote:"자료 없음",_tid:t.tid,_t:Date.now()};
+            none++;
+            return null;
+          });
         })
       : Promise.resolve(wikiCache[t.k.wiki]);
     wikiStep.then(function(data){
