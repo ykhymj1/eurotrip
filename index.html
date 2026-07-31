@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v20.4 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v20.5 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -617,6 +617,37 @@ function placeQuery(item){
   return name;
 }
 
+/* v20.5 같은 장소인데 한쪽에만 좌표가 적힌 경우, 그 좌표를 빌려 쓴다.
+   "Enterprise 렌터카 픽업 - 에베네스 공항점"(좌표 없음)과
+   "에베네스 공항점 Enterprise 렌터카 반납"(좌표 있음)은 같은 영업소다.
+   낱말을 정렬해 비교하므로 어순이 달라도 같은 곳으로 인식한다. */
+function placeSig(nm){
+  if(!nm) return "";
+  var raw=String(nm).toLowerCase();
+  /* 브랜드 오타를 표준 이름으로 (Eeterprise → enterprise) — 픽업/반납이 같은 곳임을 알아보게 */
+  var br=carBrandFuzzy(raw);
+  if(br) raw=raw.replace(/[a-z가-힣]{4,16}/g,function(x){ return brandHit(x,br)?br[0]:x; });
+  var w=raw
+        .replace(/[^0-9a-z가-힣\u00C0-\u024F]+/g," ")
+        .split(/\s+/).filter(function(x){ return x.length>1; });
+  if(w.length<2) return "";
+  return w.sort().join(" ");
+}
+function borrowCoord(item,nm){
+  var sig=placeSig(nm);
+  if(!sig) return null;
+  var trip=currentTrip();
+  if(!trip) return null;
+  var hit=null;
+  trip.days.forEach(function(d){
+    d.items.forEach(function(it2){
+      if(hit||it2===item||it2.lat==null||it2.coordSub) return;
+      if(placeSig(placeQuery(it2))===sig) hit={lat:it2.lat,lng:it2.lng,from:effective(it2).title};
+    });
+  });
+  return hit;
+}
+
 function navTargets(item){
   var e=effective(item);
   if(e.dest!==null&&e.dest!==""){
@@ -628,12 +659,26 @@ function navTargets(item){
   if(item.lat!=null){
     /* 좌표가 "주차장" 같은 하위 지점에서 왔으면 제목 명칭으로 검색하면 안 됨 */
     if(item.coordSub) return {ll:item.lat+","+item.lng,q:null,name:null,glabel:null};
+    /* v20.5 지점형(주차장·전망대·입구·들머리)은 좌표만 쓴다.
+       지도 데이터가 주차장을 제대로 찾아도 그 이름이 "Preikestolen"처럼
+       인근 명소와 같아서, 구글에 넘기면 명소(Pulpit Rock)로 안내된다.
+       이런 곳은 좌표가 유일하게 정확한 표현이다. */
+    var rawT=e.title||"";
+    /* 추출 명칭이 영문이어도 원 제목에 "전망대·주차장"이 있으면 지점형으로 본다
+       ("스테가스타인 전망대(Stegastein)" → Stegastein 은 마을 이름이라 위치가 어긋남) */
+    if(GEO_POINT_RE.test(nm||"")||GEO_POINT_RE.test(rawT))
+      return {ll:item.lat+","+item.lng,q:null,name:null,glabel:null};
+    /* 렌트카 영업소도 좌표가 있으면 좌표가 가장 정확 */
+    if(carEvent(rawT)!==0)
+      return {ll:item.lat+","+item.lng,q:null,name:null,glabel:null};
     var g=geoVerified(item,nm);
     return {ll:item.lat+","+item.lng,q:null,name:nm,glabel:g};
   }
   /* 좌표가 없는데 쓸 만한 장소 이름도 없으면 → 추측하지 않고 네비 버튼 없음
      (예: "하이킹 종료, 주차장 복귀", "기상, 짐 정리", "현지 슈퍼 2곳 중 한곳") */
   if(!nm) return null;
+  var bw=borrowCoord(item,nm);          /* 같은 장소가 일정 어딘가에 좌표로 적혀 있으면 그걸 씀 */
+  if(bw) return {ll:bw.lat+","+bw.lng,q:null,name:nm,glabel:null,borrowed:bw.from};
   return {ll:null,q:nm,name:nm,glabel:null};
 }
 
@@ -649,7 +694,7 @@ var GEO_OK_KM=1.5;                     /* 기본 허용 거리 */
      (프레이케스톨렌 주차장이 2.96km 떨어진 Pulpit Rock으로 잡히던 문제)
    · 공항·역·터미널 = 이름이 확실한 큰 시설 → 지도 데이터가 더 정확 (15km)
      (일정 좌표가 몇 km 어긋나 있어도 공항 정문으로 안내) */
-var GEO_POINT_RE=/주차장|주차|parking|parkering|입구|entrance|전망대|viewpoint|utsikt|lookout|출발점|들머리|trailhead|정류장|bus\s*stop/i;
+var GEO_POINT_RE=/주차장|주차|parking|parkering|입구|entrance|전망대|전망 ?포인트|포토스팟|viewpoint|view ?point|utsikt|utkikk|udsigt|lookout|mirador|aussicht|출발점|들머리|trailhead|정류장|bus ?stop|승강장|매표소|ticket ?office/i;
 var GEO_BIG_RE=/공항|airport|lufthavn|flyplass|station|터미널|terminal|항구|port|ferjekai|ferry|중앙역|hbf|bahnhof/i;
 function geoTolKm(nm){
   if(GEO_POINT_RE.test(nm||"")) return 0.4;
@@ -728,8 +773,10 @@ function geoTargets(){
     t.days.forEach(function(d){
       d.items.forEach(function(it){
         if(it.lat==null) return;
+        if(it.coordSub) return;
         var nm=placeQuery(it);
-        if(!nm) return;
+        var rt=effective(it).title||"";
+        if(!nm||GEO_POINT_RE.test(nm)||GEO_POINT_RE.test(rt)||carEvent(rt)!==0) return;
         var k=geoKey(it,nm);
         if(!k||geoCache[k]) return;
         out.push({item:it,nm:nm,k:k,tid:t.id});
@@ -1016,6 +1063,10 @@ function analyzeItem(item,e,kind,cityMap,prevCoord){
   /* 2) 좌표 없는 렌트카 픽업/반납 → 해당 공항 렌트카 영업소를 목적지로 (지역명 포함) */
   if(cev!==0){
     var nm0=placeQuery(item);
+    /* v20.5 같은 영업소가 일정 다른 날 좌표로 적혀 있으면(왕복 픽업=반납) 그 좌표를 씀 */
+    var bw0=borrowCoord(item,nm0);
+    if(bw0) return {nav:true,dest:{ll:bw0.lat+","+bw0.lng,q:null},
+                    note:(cev===-1?"반납 장소":"픽업 장소")+": "+(nm0||"")};
     var c=cityMap&&cityMap[item.id];
     /* v20.3: "○○ 공항점"은 브랜드+지점명으로 검색하면 구글이 못 찾는다.
        공항 이름이 확인되면 공항 자체를 목적지로 (영업소는 공항 안에 있음) */
