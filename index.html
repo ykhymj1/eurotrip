@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v20.3 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v20.4 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -659,9 +659,22 @@ function geoTolKm(nm){
 var GEO_BASE="https://nominatim.openstreetmap.org";
 var geoRunning=false, geoTried={};
 
+/* v20.4: 판정 기준(허용 거리·종류 검증)이 바뀌면 접두사를 올려
+   기기에 저장된 옛 검증 결과를 자동으로 버리고 다시 조회한다.
+   (0.4km 기준을 넣었는데도 주차장이 계속 봉우리로 안내되던 원인) */
+var GEO_VER="g3";
 function geoKey(item,nm){
   if(item.lat==null||!nm) return null;
-  return "g1|"+item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|"+nm;
+  return GEO_VER+"|"+item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|"+nm;
+}
+/* 옛 버전 캐시 정리 */
+function geoPurgeOld(){
+  var n=0;
+  Object.keys(geoCache).forEach(function(k){
+    if(k.indexOf(GEO_VER+"|")!==0){ delete geoCache[k]; n++; }
+  });
+  if(n) save(LS_GEO,geoCache);
+  return n;
 }
 /* 검증에 통과한 명칭 문자열 (없으면 null) */
 function geoVerified(item,nm){
@@ -709,6 +722,7 @@ function geoResolveOne(nm,lat,lng){
 
 /* 검증이 필요한 항목 목록 */
 function geoTargets(){
+  geoPurgeOld();
   var out=[];
   trips.forEach(function(t){
     t.days.forEach(function(d){
@@ -1804,6 +1818,19 @@ function docsFor(date,itemId){
   });
 }
 /* 일정 항목에 붙일 문서 (날짜+종류+키워드 동적 매칭 — 일정 재업로드에도 안전) */
+/* 문자열에서 편명만 뽑기 (KE905 / JL 9359 → KE905, JL9359) */
+var FL_NOT_AIRLINE=/^(PM|AM|NO|ID|PC|CO|VA|TO|OF|IN|ON|AT|BY|DE|LA|EL|KM|MB|GB|OK|NV|FB|BG|VD|NS|HK|RR|TK|EQ|SA|USD|EUR|KRW|NOK|JPY)$/;
+function flightNosIn(str){
+  var out=[], re=/\b([A-Z]{2})\s?(\d{2,4})\b/g, m, s=String(str||"").toUpperCase();
+  while((m=re.exec(s))!==null){
+    if(FL_NOT_AIRLINE.test(m[1])) continue;
+    if(parseInt(m[2],10)===0) continue;
+    var v=m[1]+String(parseInt(m[2],10));
+    if(out.indexOf(v)<0) out.push(v);
+  }
+  return out;
+}
+
 function docsForItem(item,dayDate){
   if(!item||!dayDate) return [];
   var trip=currentTrip();
@@ -1825,6 +1852,17 @@ function docsForItem(item,dayDate){
     var sc=docKeyScore(d.keys,title);
     if(d.type==="air"){
       if(!fit) return;               /* 항공권: 공항 출발 항목에만 (엄격) */
+      /* v20.4: 같은 날 항공편이 여럿이면 날짜만으로는 못 가른다.
+         일정 제목의 편명과 항공권 본문의 편명을 대조해 다르면 붙이지 않는다.
+         (헬싱키 출발 JL9359 항목에 오슬로→스타방에르 DY528 항공권이 붙던 문제) */
+      var itemFl=flightNosIn(title);
+      var docFl=flightNosIn((d.text||"")+" "+((d.keys||[]).join(" ")));
+      if(itemFl.length&&docFl.length){
+        var hit=itemFl.some(function(f){ return docFl.indexOf(f)>=0; });
+        if(!hit) return;                       /* 편명이 다름 → 다른 구간의 항공권 */
+        res.push({d:d,sc:sc+20,air:1,spread:false});
+        return;
+      }
       res.push({d:d,sc:sc,air:1,spread:!!d.auto});
       return;
     }
