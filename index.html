@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v20.2 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v20.3 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -505,11 +505,16 @@ function stripCoordText(t){
 }
 
 /* 라틴 문자 비율이 높은 괄호 안 원어명 뽑기: "악슬라 전망대(Aksla Utkikkspunkt)" → Aksla Utkikkspunkt */
+/* 괄호 안이 항공사·편명이면 장소명이 아님
+   ("Harstad/Narvik Airport, Evenes 도착( Norwegian Air)" → Norwegian Air로 잡히던 문제) */
+var PAREN_NOT_PLACE=/^(norwegian|sas|scandinavian|finnair|klm|lufthansa|air\s*france|british|ryanair|wizz|easyjet|wideroe|widerøe|jal|japan\s*air|ana|korean\s*air|asiana|delta|united|american|emirates|qatar|turkish|iberia|vueling|lot|tap|aegean|swiss|austrian|brussels|eurowings|jetstar|peach)\b|^[A-Z]{2}\s?\d{2,4}$|\bair(lines?|ways)?$|\bshuttle$/i;
+
 function parenLatin(t){
   var re=/\(([^)]{2,60})\)/g, m, best=null;
   while((m=re.exec(t))!==null){
     var s=m[1].trim();
     if(/[가-힣]/.test(s)) continue;                       /* 한글 설명 괄호는 제외 */
+    if(PAREN_NOT_PLACE.test(s)) continue;                 /* 항공사·편명은 제외 */
     var lat=(s.match(new RegExp("["+LAT_CH+"]","g"))||[]).length;
     if(lat<3||lat/s.length<0.5) continue;
     if(!best||s.length>best.length) best=s;
@@ -638,7 +643,19 @@ function navTargets(item){
    결과는 로컬에 캐시되어 오프라인에서도 그대로 쓰인다. */
 var LS_GEO="wtrip_geo_v1";
 var geoCache=loadObj(LS_GEO,{});
-var GEO_OK_KM=3;                       /* 이 거리 밖이면 "엉뚱한 위치"로 보고 좌표 사용 */
+var GEO_OK_KM=1.5;                     /* 기본 허용 거리 */
+/* v20.3: 장소 성격에 따라 허용 거리를 다르게 둔다.
+   · 주차장·전망대·입구 = 지점형 → 일정에 적힌 좌표가 더 정확 (0.4km)
+     (프레이케스톨렌 주차장이 2.96km 떨어진 Pulpit Rock으로 잡히던 문제)
+   · 공항·역·터미널 = 이름이 확실한 큰 시설 → 지도 데이터가 더 정확 (15km)
+     (일정 좌표가 몇 km 어긋나 있어도 공항 정문으로 안내) */
+var GEO_POINT_RE=/주차장|주차|parking|parkering|입구|entrance|전망대|viewpoint|utsikt|lookout|출발점|들머리|trailhead|정류장|bus\s*stop/i;
+var GEO_BIG_RE=/공항|airport|lufthavn|flyplass|station|터미널|terminal|항구|port|ferjekai|ferry|중앙역|hbf|bahnhof/i;
+function geoTolKm(nm){
+  if(GEO_POINT_RE.test(nm||"")) return 0.4;
+  if(GEO_BIG_RE.test(nm||"")) return 15;
+  return GEO_OK_KM;
+}
 var GEO_BASE="https://nominatim.openstreetmap.org";
 var geoRunning=false, geoTried={};
 
@@ -677,7 +694,13 @@ function geoResolveOne(nm,lat,lng){
         var d=haversineKm(lat,lng,parseFloat(r.lat),parseFloat(r.lon));
         if(d<bestD){ bestD=d; best=r; }
       });
-      if(!best||bestD>GEO_OK_KM) return {ok:false,why:"거리 "+bestD.toFixed(1)+"km",km:bestD};
+      var tol=geoTolKm(nm);
+      if(!best||bestD>tol) return {ok:false,why:"거리 "+bestD.toFixed(1)+"km(허용 "+tol+"km)",km:bestD};
+      /* 주차장을 찾는데 주차장이 아닌 결과가 오면 채택하지 않음 */
+      if(/주차|parking|parkering/i.test(nm)){
+        var dn=(best.display_name||"")+" "+(best.type||"")+" "+(best.class||"");
+        if(!/parking|parkering|주차/i.test(dn)) return {ok:false,why:"주차장이 아님",km:bestD};
+      }
       return {ok:true,label:geoLabel(best.display_name,nm),km:bestD,
               lat:parseFloat(best.lat),lng:parseFloat(best.lon)};
     })
@@ -980,10 +1003,18 @@ function analyzeItem(item,e,kind,cityMap,prevCoord){
   if(cev!==0){
     var nm0=placeQuery(item);
     var c=cityMap&&cityMap[item.id];
-    var q0=nm0||(c?(c.en?(c.name+" Airport car rental"):(c.name+" 공항 렌터카")):null);
+    /* v20.3: "○○ 공항점"은 브랜드+지점명으로 검색하면 구글이 못 찾는다.
+       공항 이름이 확인되면 공항 자체를 목적지로 (영업소는 공항 안에 있음) */
+    var ap=(item.title||"").match(/([가-힣]{2,10}|[A-Za-z][A-Za-z\-\/]{2,18})\s*(?:공항|airport)/i);
+    var q0=null;
+    if(ap&&ap[1]) q0=ap[1].trim()+" 공항";
+    else if(c) q0=c.en?(c.name+" Airport"):(c.name+" 공항");
+    else q0=nm0;
     if(!q0) return {nav:false};      /* 지점을 못 찾으면 엉뚱한 곳 대신 버튼 없음 */
     var q=withRegion(q0);
-    return {nav:true,dest:{ll:null,q:q},note:(cev===-1?"반납 장소":"픽업 장소")+": "+q};
+    var brandTxt=(carBrandOf(item.title||"")||["",""])[0];
+    return {nav:true,dest:{ll:null,q:q},
+            note:(cev===-1?"반납 장소":"픽업 장소")+": "+(nm0||q)};
   }
 
   /* 3) 예약·메모성 항목 / URL 조각 / 서술 문장 */
@@ -1794,7 +1825,7 @@ function docsForItem(item,dayDate){
     var sc=docKeyScore(d.keys,title);
     if(d.type==="air"){
       if(!fit) return;               /* 항공권: 공항 출발 항목에만 (엄격) */
-      res.push({d:d,sc:sc});
+      res.push({d:d,sc:sc,air:1,spread:!!d.auto});
       return;
     }
     /* v19.7 렌트카: "렌트카/렌터카"라고 적혀 있고 날짜가 맞으면 무조건 버튼을 만든다.
@@ -1821,6 +1852,11 @@ function docsForItem(item,dayDate){
     if((d.type==="tkt"||d.type==="etc")&&sc<4&&!fit) return;
     res.push({d:d,sc:sc});
   });
+  /* v20.3: 본문을 못 읽어 "항공 있는 날 전부"에 붙은 항공권은,
+     날짜가 정확히 특정된 항공권이 같은 항목에 있으면 숨긴다.
+     (8/19에 YPKMLL 2장 + 날짜 미상 2장 = 4장이 붙던 문제) */
+  if(res.some(function(x){ return x.air&&!x.spread; }))
+    res=res.filter(function(x){ return !(x.air&&x.spread); });
   return res.sort(function(a,b){ return b.sc-a.sc; }).map(function(x){ return x.d; });
 }
 
