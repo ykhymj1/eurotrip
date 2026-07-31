@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v21.5 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v22.0 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1958,6 +1958,8 @@ function docsForItem(item,dayDate){
     if(!fit&&sc<4) return;           /* 타입도 이름도 안 맞으면 제외 */
     var best=docBestItemId(d,day);   /* 그 날짜에서 가장 잘 맞는 항목 하나에만 */
     if(best.id!==item.id) return;
+    /* v22.0 일정표는 개별 항목에 붙이지 않는다 (항공권 버튼에 끼어들던 문제) */
+    if(d.type==="etc"&&/일정표|itinerary|여행\s*계획|\d+박\s*\d+일/i.test(d.name||"")) return;
     if((d.type==="tkt"||d.type==="etc")&&sc<4&&!fit) return;
     res.push({d:d,sc:sc});
   });
@@ -3264,7 +3266,8 @@ function handlePdf(file){
     render(); /* 화면 갱신 우선 */
     window.scrollTo({top:0});
     try{ syncPush(); }catch(e){}
-    setTimeout(function(){ itinFlightRegister(currentTrip()); },200);      /* 일정표 편명으로 항공 추적 */
+    var newTrip=trips[trips.length-1];
+    setTimeout(function(){ itinFlightRegister(newTrip); },200);            /* 일정표 편명으로 항공 추적 */
     setTimeout(function(){ regionPrefetch(); geoPrefetch(false); },400);   /* 장소명↔좌표 대조 */
     setTimeout(function(){ placePrefetch(false); },900); /* 관광지 설명 미리 받기 */
   }).catch(function(err){
@@ -3373,8 +3376,9 @@ document.getElementById("delTripBtn").addEventListener("click",function(){
   });
   if(qrChanged){ qrSave(); qrPush(); }
 
-  /* 3) 관광지 설명·AI 요약 캐시 삭제 */
+  /* 3) 관광지 설명·AI 요약·좌표검증 캐시 삭제 */
   var nPlace=placeCacheDropTrip(trip.id);
+  try{ geoDropTrip(trip.id); }catch(e){}
 
   /* 4) 여행 삭제 */
   cleanupTripData(trip.id);
@@ -3382,8 +3386,20 @@ document.getElementById("delTripBtn").addEventListener("click",function(){
   deletedTrips[trip.id]=Date.now(); save(LS_DEL,deletedTrips);
   currentId=trips.length?trips[0].id:null;
   save(LS_TRIPS,trips); save(LS_CUR,currentId);
-  syncPush();
-  status("🗑 여행 · 문서 "+nDoc+"개 · QR "+nQr+"장 · 관광지설명 "+nPlace+"건 삭제 완료");
+
+  /* v22.0 마지막 여행을 지웠으면 남은 캐시까지 전부 비운다
+     (여행을 지워도 설명·좌표 캐시가 되살아나던 문제) */
+  if(!trips.length){
+    var extra=Object.keys(wikiCache).length+Object.keys(aiCache).length+Object.keys(geoCache).length;
+    wikiCache={}; aiCache={}; geoCache={}; regionCache={};
+    save(LS_WIKI,wikiCache); save(LS_AI,aiCache); save(LS_GEO,geoCache); save(LS_REGION,regionCache);
+    try{ preTried={}; geoTried={}; itinFlightSent={}; }catch(e){}
+    nPlace+=extra;
+  }
+
+  /* 삭제는 명시적 조작이므로 빈 상태라도 서버에 반영해야 한다 */
+  syncPush(true);
+  status("🗑 여행 · 문서 "+nDoc+"개 · QR "+nQr+"장 · 설명/좌표 캐시 "+nPlace+"건 삭제 완료");
   render();
 });
 
@@ -4125,7 +4141,7 @@ function startSync(){
     fbRef=fbdb.ref("rooms/"+syncCode);
     fbRef.on("value",function(snap){
       var v=snap.val();
-      if(!v){ syncPush(); return; } /* 방이 비어있으면 내 데이터 업로드 */
+      if(!v){ if(trips.length) syncPush(true); return; }  /* 방이 비어있고 내게 일정이 있을 때만 업로드 */
       if(v.dev===DEVICE_ID) return;
       if(!v.updatedAt||v.updatedAt<=lastApplied) return;
       applyingRemote=true;
@@ -4135,10 +4151,13 @@ function startSync(){
         if(!deletedTrips[k]||rDel[k]>deletedTrips[k]) deletedTrips[k]=rDel[k];
       });
       /* 여행 병합: 로컬에만 있거나 더 최신인 여행을 살림 */
+      syncSeenRemoteTrips=Math.max(syncSeenRemoteTrips,(v.trips||[]).length);
       var mg=mergeTrips(trips,v.trips||[],deletedTrips);
       trips=mg.list;
-      edits=v.edits||{};
-      done=v.done||{};
+      /* v22.0 edits/done 도 병합한다 (예전엔 원격으로 통째 교체해 로컬 메모가 날아갔다) */
+      var rEd=v.edits||{}, rDn=v.done||{};
+      Object.keys(rEd).forEach(function(k){ if(!(k in edits)) edits[k]=rEd[k]; });
+      Object.keys(rDn).forEach(function(k){ if(!(k in done)) done[k]=rDn[k]; });
       save(LS_TRIPS,trips); save(LS_EDIT,edits); save(LS_DONE,done); save(LS_DEL,deletedTrips);
       if(!trips.some(function(t){ return t.id===currentId; })){
         currentId=trips.length?trips[0].id:null;
@@ -4174,8 +4193,16 @@ function stopSync(){
   status("동기화 해제됨 (이 기기의 일정은 유지)");
 }
 
-function syncPush(){
+/* v22.0 여행이 하나도 없는 기기가 서버를 덮어쓰면 다른 기기의 일정이 통째로 사라진다.
+   (앱을 새로 연 폰이 빈 상태를 올려 PC의 일정을 지우던 문제 — 업로드 직후 일정이
+    사라졌다가 새로고침하면 되살아나던 증상, 폰에 일정표만 안 오던 증상의 원인) */
+var syncSeenRemoteTrips=0;
+function syncPush(force){
   if(!fbRef||!syncCode||applyingRemote) return;
+  if(!force&&trips.length===0&&syncSeenRemoteTrips>0){
+    status("⚠ 이 기기에 일정이 없어 업로드하지 않았습니다 (서버 일정 보호)");
+    return;
+  }
   var state={trips:trips,deleted:deletedTrips,edits:edits,done:done,updatedAt:Date.now(),dev:DEVICE_ID};
   lastApplied=state.updatedAt;
   try{
