@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v21.0 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v21.1 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -2315,6 +2315,67 @@ function docFetchRemote(id){
     });
   });
 }
+/* ===== v21.1 설명·후기 캐시 동기화 =====
+   지금까지 관광지 설명·식당 후기는 이 기기 localStorage 에만 있었다.
+   → 다른 기기에서 열면 처음부터 다시 받아야 하고, 오프라인에서는 아예 못 봤다.
+   Firebase /info/{코드} 에 함께 올려 어느 기기에서든 즉시·오프라인으로 보이게 한다. */
+var infoRef=null, infoApplying=false, infoPushT=null;
+
+function infoPack(){
+  /* 용량 절약: 본문 900자까지만, 현재 여행 것만 */
+  var tid=(currentTrip()||{}).id||"";
+  var w={}, a={}, n=0;
+  Object.keys(wikiCache).forEach(function(k){
+    var d=wikiCache[k];
+    if(!d||(d._tid&&tid&&d._tid!==tid)) return;
+    if(n++>400) return;
+    w[infoKeyEnc(k)]={e:String(d.extract||"").slice(0,900),i:d.img||"",u:d.url||"",s:d.srcNote||"",t:d._t||Date.now(),d:d._tid||""};
+  });
+  n=0;
+  Object.keys(aiCache).forEach(function(k){
+    var d=aiCache[k];
+    if(!d) return;
+    if(n++>400) return;
+    a[infoKeyEnc(k)]={x:String(d.text||"").slice(0,900),m:d.model||"",t:d.t||Date.now(),d:d._tid||""};
+  });
+  return {wiki:w,ai:a,dev:DEVICE_ID,updatedAt:Date.now()};
+}
+/* Firebase 키에 못 쓰는 문자 치환 */
+function infoKeyEnc(k){ return String(k).replace(/[.#$/\[\]]/g,"_"); }
+
+function infoPush(){
+  if(!infoRef||infoApplying) return;
+  clearTimeout(infoPushT);
+  infoPushT=setTimeout(function(){
+    try{ infoRef.set(infoPack()); }catch(e){}
+  },1500);
+}
+function infoStartSync(db,code){
+  infoRef=db.ref("info/"+code);
+  infoRef.on("value",function(snap){
+    var v=snap.val();
+    if(!v){ infoPush(); return; }
+    if(v.dev===DEVICE_ID) return;
+    infoApplying=true;
+    var got=0;
+    Object.keys(v.wiki||{}).forEach(function(ek){
+      var r=v.wiki[ek];
+      var hit=Object.keys(wikiCache).some(function(k){ return infoKeyEnc(k)===ek; });
+      if(hit||!r||!r.e) return;
+      wikiCache[ek]={extract:r.e,img:r.i||"",url:r.u||"",srcNote:r.s||"",_tid:r.d||"",_t:r.t||Date.now()};
+      got++;
+    });
+    Object.keys(v.ai||{}).forEach(function(ek){
+      var r=v.ai[ek];
+      if(aiCache[ek]||!r||!r.x) return;
+      aiCache[ek]={text:r.x,model:r.m||"",t:r.t||Date.now(),_tid:r.d||""};
+      got++;
+    });
+    infoApplying=false;
+    if(got){ save(LS_WIKI,wikiCache); save(LS_AI,aiCache); status("ℹ️ 다른 기기에서 받아 둔 설명 "+got+"건을 가져왔습니다"); }
+  },function(){});
+}
+
 function docsStartSync(db,code){
   docsRef=db.ref("docs/"+code);
   docsFlushPendingDel(); /* 오프라인 중 삭제·만료된 항목을 Firebase에 반영 */
@@ -3605,6 +3666,7 @@ document.getElementById("aiSumBtn").addEventListener("click",function(){
     var ks=Object.keys(aiCache);
     if(ks.length>400) delete aiCache[ks[0]];
     save(LS_AI,aiCache);
+    infoPush();
     renderAi(j.summary,j.model);
   }).catch(function(e){
     btn.disabled=false;
@@ -3616,6 +3678,20 @@ document.getElementById("aiSumBtn").addEventListener("click",function(){
    ("Bryggeloftet & Stuene" → 한자동맹박물관 / "Fisketorget Stavanger" → 스타방에르 시)
    식당은 위키를 아예 건너뛰고 네이버·구글 리뷰로 간다. */
 var FOOD_RE=/식당|레스토랑|restaurant|브라세리|brasserie|비스트로|bistro|다이닝|맛집|카페\b|cafe\b|café|커피|coffee|바\b|pub\b|바베큐|초밥|스시|sushi|라멘|ramen|피자|pizza|버거|burger|시푸드|seafood|sjømat|sjomat|kjøkken|kjokken|점심|저녁|아침|브런치|brunch|dinner|lunch|breakfast|tapas|osteria|trattoria|taverna/i;
+/* v21.1 시설(호텔·역·페리터미널·공항·케이블카 등) — 위키에 없으니 구글 플레이스로 */
+var FACILITY_RE=/호텔|hotel|모텔|motel|호스텔|hostel|게스트하우스|guesthouse|료칸|ryokan|리조트|resort|캠핑|camping|산장|lodge|숙소|체크인|체크아웃|역\b|station|중앙역|hbf|bahnhof|gare\b|터미널|terminal|페리|ferry|ferjekai|선착장|항구|port\b|공항|airport|lufthavn|flyplass|렌터카|렌트카|rent\s*a?\s*car|케이블카|cable\s*car|리프트|skylift|곤돌라|gondola|푸니쿨라|funicular|주차장|parking/i;
+function isFacilityItem(item,title){
+  var t=title||effective(item).title||"";
+  return FACILITY_RE.test(t);
+}
+/* 워커에 보낼 종류: food / place(시설) / ""(관광명소=위키) */
+function infoKind(item,title){
+  var t=title||effective(item).title||"";
+  if(isFoodItem(item,t)) return "food";
+  if(isFacilityItem(item,t)) return "place";
+  return "";
+}
+
 function isFoodItem(item,title){
   var t=title||effective(item).title||"";
   try{ if(kindOf(item,t).k==="meal") return true; }catch(e){}
@@ -3663,26 +3739,26 @@ function showInfo(item){
   }
 
   var cacheKey="v8|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
-  var isFoodNow=isFoodItem(item,e.title);
-  var cached=isFoodNow?null:wikiCache[cacheKey];   /* 식당은 예전에 잘못 저장된 위키 설명을 쓰지 않음 */
+  var kindNow=infoKind(item,e.title);
+  var cached=kindNow?null:wikiCache[cacheKey];   /* 식당·시설은 예전에 잘못 저장된 위키 설명을 쓰지 않음 */
   if(cached){ renderInfo(cached); return; }
 
-  /* ── 식당·카페: 위키 조회를 건너뛰고 후기 요약을 바로 보여준다 ── */
-  if(isFoodNow){
-    var fk="food|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
+  /* ── 식당·시설: 위키 조회를 건너뛰고 구글 플레이스 후기로 ── */
+  if(kindNow){
+    var fk=kindNow+"|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
     var fc=wikiCache[fk];
     if(fc){ renderInfo(fc); return; }
     if(!AI_WORKER||!navigator.onLine){
-      bEl.textContent="식당 후기는 인터넷 연결이 필요합니다.\n\n인터넷이 되는 곳에서 한 번 열면 저장됩니다.";
+      bEl.textContent="후기는 인터넷 연결이 필요합니다.\n\n인터넷이 되는 곳에서 한 번 열면 저장되고, 동기화된 다른 기기에서도 오프라인으로 보입니다.";
       sEl.innerHTML=""; return;
     }
-    bEl.textContent="🍽 한국어·현지 후기를 모으는 중…";
+    bEl.textContent=(kindNow==="food"?"🍽 ":"📍 ")+"한국어·현지 후기를 모으는 중…";
     fetch(AI_WORKER,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         name:(placeQuery(item)||query),
-        kind:"food",
+        kind:kindNow,
         lat:item.lat!=null?item.lat:null,
         lng:item.lat!=null?item.lng:null,
         wiki:""
@@ -3690,9 +3766,10 @@ function showInfo(item){
     }).then(function(r){ return r.json(); }).then(function(j){
       var txt=(j&&j.summary)||"";
       if(!txt){ bEl.textContent="후기를 찾지 못했습니다. 현장에서 확인하세요."; return; }
-      var d={extract:txt,img:"",url:"",srcNote:"네이버 블로그·카페 + 구글 지도 리뷰 (AI 정리)",
+      var d={extract:txt,img:"",url:"",srcNote:"구글 지도 리뷰 + 네이버 블로그·카페 (AI 정리)",
              _tid:(currentTrip()||{}).id||"",_t:Date.now()};
       wikiCache[fk]=d; save(LS_WIKI,wikiCache);
+      infoPush();
       renderInfo(d);
     }).catch(function(){
       bEl.textContent="후기를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
@@ -3709,6 +3786,7 @@ function showInfo(item){
       if(keys.length>400) delete wikiCache[keys[0]];
       save(LS_WIKI,wikiCache);
       renderInfo(data);
+      infoPush();
     })
     .catch(function(){
       var tpl=typeTemplate(e.title);
@@ -3799,15 +3877,15 @@ function placePrefetch(silent){
       /* v19.5: 위키 근거가 없으면 AI를 부르지 않음.
          (근거 없이 요약하면 인근 다른 장소 설명이 만들어짐) */
       var it=t.item;
-      var isFood=isFoodItem(it);
+      var kindPre=infoKind(it);
       /* v20.6 식당은 위키 대신 한국인 블로그·카페 후기로 요약한다 */
-      if(!isFood&&(!data||!data.extract||data.srcNote==="유형 안내")) return null;
+      if(!kindPre&&(!data||!data.extract||data.srcNote==="유형 안내")) return null;
       return fetch(AI_WORKER,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           name:placeQuery(it)||effective(it).title,
-          kind:isFood?"food":"",
+          kind:kindPre,
           lat:it.lat!=null?it.lat:null,
           lng:it.lat!=null?it.lng:null,
           wiki:((data&&data.extract)||"").slice(0,1500)
@@ -3972,6 +4050,7 @@ function startSync(){
     });
     qrStartSync(fbdb,syncCode);
     docsStartSync(fbdb,syncCode);
+    infoStartSync(fbdb,syncCode);
     status(syncStatusText());
   }).catch(function(e){ status("⚠ "+e.message); });
 }
