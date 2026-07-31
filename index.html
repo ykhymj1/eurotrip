@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v21.1 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v21.2 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -3714,6 +3714,26 @@ var LS_FOODFIX="wtrip_foodfix_v1";
   }catch(e){}
 })();
 
+/* v21.2 위키 결과가 부실하거나 엉뚱한지 판정
+   ("게이랑에르 폭포 산책" → Geiranger Church 처럼 근처 다른 문서가 잡히는 경우) */
+function wikiWeak(d,rawTitle,query){
+  if(!d||!d.extract) return "위키 문서 없음";
+  if(/위키백과 문서는 없는 장소/.test(d.extract)) return "위키 문서 없음";
+  if(String(d.extract).replace(/\s/g,"").length<80) return "설명이 너무 짧음";
+  var q=String(latinName(rawTitle)||query||"").toLowerCase();
+  var t=String(d.title||"").toLowerCase();
+  if(q&&t){
+    var qt=q.split(/[^a-z0-9\u00C0-\u024F]+/).filter(function(w){ return w.length>3; });
+    if(qt.length){
+      var hit=qt.filter(function(w){ return t.indexOf(w)>=0; }).length;
+      if(!hit) return "다른 장소로 잡힘";
+      if(hit<qt.length&&/church|kirke|kirche|museum|kommune|municipality|village|parish/i.test(t))
+        return "다른 장소로 잡힘";
+    }
+  }
+  return "";
+}
+
 function showInfo(item){
   var e=effective(item);
   var query=cleanWikiQuery(e.title);
@@ -3743,43 +3763,50 @@ function showInfo(item){
   var cached=kindNow?null:wikiCache[cacheKey];   /* 식당·시설은 예전에 잘못 저장된 위키 설명을 쓰지 않음 */
   if(cached){ renderInfo(cached); return; }
 
-  /* ── 식당·시설: 위키 조회를 건너뛰고 구글 플레이스 후기로 ── */
-  if(kindNow){
-    var fk=kindNow+"|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
+  /* ── 구글 플레이스 경로 (식당·시설, 그리고 위키가 부실한 관광명소) ── */
+  function placeInfoPath(kd,why){
+    var fk=kd+"|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
     var fc=wikiCache[fk];
     if(fc){ renderInfo(fc); return; }
     if(!AI_WORKER||!navigator.onLine){
       bEl.textContent="후기는 인터넷 연결이 필요합니다.\n\n인터넷이 되는 곳에서 한 번 열면 저장되고, 동기화된 다른 기기에서도 오프라인으로 보입니다.";
       sEl.innerHTML=""; return;
     }
-    bEl.textContent=(kindNow==="food"?"🍽 ":"📍 ")+"한국어·현지 후기를 모으는 중…";
+    bEl.textContent=(kd==="food"?"🍽 ":"📍 ")+"구글 지도 후기를 모으는 중…";
     fetch(AI_WORKER,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         name:(placeQuery(item)||query),
-        kind:kindNow,
+        kind:kd,
         lat:item.lat!=null?item.lat:null,
         lng:item.lat!=null?item.lng:null,
         wiki:""
       })
     }).then(function(r){ return r.json(); }).then(function(j){
       var txt=(j&&j.summary)||"";
-      if(!txt){ bEl.textContent="후기를 찾지 못했습니다. 현장에서 확인하세요."; return; }
-      var d={extract:txt,img:"",url:"",srcNote:"구글 지도 리뷰 + 네이버 블로그·카페 (AI 정리)",
+      if(!txt||/찾지 못했습니다/.test(txt)){
+        bEl.textContent="이 장소의 설명·후기를 찾지 못했습니다.\n\n✏️에서 이름을 공식 명칭(현지어·영문)으로 바꾸면 검색이 잘 되기도 합니다.";
+        sEl.innerHTML=""; return;
+      }
+      var d={extract:txt,img:"",url:"",
+             srcNote:"구글 지도 리뷰 + 네이버 블로그·카페 (AI 정리)"+(why?" · "+why:""),
              _tid:(currentTrip()||{}).id||"",_t:Date.now()};
-      wikiCache[fk]=d; save(LS_WIKI,wikiCache);
-      infoPush();
+      wikiCache[fk]=d; save(LS_WIKI,wikiCache); infoPush();
       renderInfo(d);
     }).catch(function(){
       bEl.textContent="후기를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
     });
-    return;
   }
+
+  if(kindNow){ placeInfoPath(kindNow,""); return; }
+
 
   bEl.textContent="🔎 인터넷에서 설명을 찾는 중…";
   lookupInfo(item,query,enQuery)
     .then(function(data){
+      var weak=wikiWeak(data,e.title,query);
+      if(weak&&AI_WORKER&&navigator.onLine){ placeInfoPath("place",weak); return; }
       data._tid=(currentTrip()||{}).id||""; data._t=Date.now();
       wikiCache[cacheKey]=data;
       var keys=Object.keys(wikiCache);
@@ -3789,11 +3816,11 @@ function showInfo(item){
       infoPush();
     })
     .catch(function(){
+      /* 위키·위키데이터에 없음 → 구글 지도 후기로 */
+      if(AI_WORKER&&navigator.onLine){ placeInfoPath("place","위키 문서 없음"); return; }
       var tpl=typeTemplate(e.title);
       if(tpl){ renderInfo(tpl); return; }
-      bEl.textContent=navigator.onLine
-        ? "이 장소에 대한 위키백과·위키데이터 문서를 찾지 못했습니다.\n\n✏️에서 이름을 공식 명칭(현지어·영문)으로 바꾸면 검색이 잘 되기도 합니다."
-        : "오프라인 상태이고 이 장소는 미리 저장된 설명이 없습니다.\n\n인터넷이 되는 곳에서 앱을 한 번 열면 모든 관광지 설명이 자동으로 저장됩니다.";
+      bEl.textContent="오프라인 상태이고 이 장소는 미리 저장된 설명이 없습니다.\n\n인터넷이 되는 곳에서 앱을 한 번 열면 자동으로 저장됩니다.";
     });
 }
 
