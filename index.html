@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v21.4 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v21.5 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1305,7 +1305,22 @@ var AIRLINE_RE=/emirates|iberia|turkish|qatar|etihad|lufthansa|\bklm\b|delta|uni
 var RAIL_FN_RE=/기차|열차|철도|승차권|신칸센|train|rail|railway|renfe|trenitalia|italo|sncf|eurostar|thalys|oebb|öbb|deutsche\s*bahn|\bdb\b|amtrak|shinkansen|jr\s*pass|nyugati|keleti|hbf|bahnhof|gare\b|estaci[oó]n|stazione|ticketdirect|auftrags/i;
 var RAIL_BODY_RE=/(coach|carriage|wagon|wagen|carrozza|vag[oó]n)\s*\d|platform\s*\d|gleis\s*\d|binario|\bandén\b|departure\s*station|arrival\s*station|열차\s*번호|호차|승차권|자유석|지정석|新幹線|乗車券|指定席|自由席|abfahrt|ankunft|zugbindung|treno\s|renfe|trenitalia|eurostar|thalys|amtrak|deutsche\s*bahn|\bice\s*\d|\brj\s*\d|\btgv\b|\bave\s*\d/i;
 
+/* v21.5 여행 일정표를 바우처(특히 항공권)로 분류하면
+   항공 항목 버튼에 일정표가 끼어든다. 일정표 특징이 뚜렷하면 기타로 둔다. */
+function looksLikeItinerary(text,name){
+  var t=String(text||""), nm=String(name||"");
+  /* "Itinerary"는 항공 e-티켓에도 흔히 쓰인다 → 파일명만으로 단정하지 않는다 */
+  if(/e-?ticket|eticket|receipt|boarding|passenger|PNR/i.test(nm)) return false;
+  if(/e-?ticket|electronic\s*ticket|passenger\s*name|booking\s*ref|예약번호|항공권|탑승권/i.test(t.slice(0,1500))) return false;
+  if(/일정표|여행\s*계획|\d+박\s*\d+일/.test(nm)) return true;
+  var days=(t.match(/\d{1,2}\s*\/\s*\d{1,2}\s*\(?[월화수목금토일]/g)||[]).length
+          +(t.match(/\d{1,2}월\s*\d{1,2}일/g)||[]).length;
+  var times=(t.match(/\b\d{1,2}:\d{2}\b/g)||[]).length;
+  return (days>=4&&times>=25);
+}
+
 function docType(text,name){
+  if(looksLikeItinerary(text,name)) return {k:"etc",ic:"🗓",label:"일정표"};
   /* 파일명 우선 판정: 사용자가 직접 붙인 이름이 가장 확실한 단서 */
   var fn=String(name||"");
   var fnl=fn.toLowerCase();
@@ -2349,6 +2364,8 @@ function infoPack(){
 function infoKeyEnc(k){ return String(k).replace(/[.#$/\[\]]/g,"_"); }
 
 function infoPush(){
+  return;                      /* v21.5 비활성 (위 주석 참고) */
+  /* eslint-disable no-unreachable */
   if(!infoRef||infoApplying) return;
   clearTimeout(infoPushT);
   infoPushT=setTimeout(function(){
@@ -2362,6 +2379,8 @@ function infoPush(){
   },1500);
 }
 function infoStartSync(db,code){
+  return;                      /* v21.5 비활성 */
+  /* eslint-disable no-unreachable */
   /* v21.4 Firebase 규칙에 /info 가 없어 permission_denied 가 났다.
      이미 허용된 /rooms/{코드} 아래로 옮겨 규칙 수정 없이 동작하게 함. */
   infoRef=db.ref("rooms/"+code+"/info");
@@ -4139,7 +4158,11 @@ function startSync(){
     });
     qrStartSync(fbdb,syncCode);
     docsStartSync(fbdb,syncCode);
-    infoStartSync(fbdb,syncCode);
+    /* v21.5 설명 캐시 동기화는 끔.
+       rooms/{코드} 는 syncPush() 가 통째로 set() 하는 경로라,
+       그 아래에 info 를 쓰면 일정 데이터와 서로 덮어쓰며 충돌한다.
+       (별도 /info 경로는 Firebase 규칙에 없어 permission_denied)
+       → 설명은 각 기기에서 따로 받아 localStorage 에만 보관한다. */
     status(syncStatusText());
   }).catch(function(e){ status("⚠ "+e.message); });
 }
