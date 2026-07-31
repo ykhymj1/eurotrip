@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v20.6 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v21.0 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -3612,6 +3612,32 @@ document.getElementById("aiSumBtn").addEventListener("click",function(){
   });
 });
 
+/* v21.0 식당·카페 판별 — 이런 곳은 위키백과에 없고, 근처 박물관·도시가 잘못 잡힌다.
+   ("Bryggeloftet & Stuene" → 한자동맹박물관 / "Fisketorget Stavanger" → 스타방에르 시)
+   식당은 위키를 아예 건너뛰고 네이버·구글 리뷰로 간다. */
+var FOOD_RE=/식당|레스토랑|restaurant|브라세리|brasserie|비스트로|bistro|다이닝|맛집|카페\b|cafe\b|café|커피|coffee|바\b|pub\b|바베큐|초밥|스시|sushi|라멘|ramen|피자|pizza|버거|burger|시푸드|seafood|sjømat|sjomat|kjøkken|kjokken|점심|저녁|아침|브런치|brunch|dinner|lunch|breakfast|tapas|osteria|trattoria|taverna/i;
+function isFoodItem(item,title){
+  var t=title||effective(item).title||"";
+  try{ if(kindOf(item,t).k==="meal") return true; }catch(e){}
+  return FOOD_RE.test(t);
+}
+
+/* v21.0 예전 버전이 식당에 잘못 붙여 둔 위키 설명 캐시를 한 번 정리 */
+var LS_FOODFIX="wtrip_foodfix_v1";
+(function(){
+  try{
+    if(loadObj(LS_FOODFIX,0)===1) return;
+    var n=0;
+    Object.keys(wikiCache).forEach(function(k){
+      if(k.indexOf("food|")===0) return;
+      var d=wikiCache[k];
+      if(d&&FOOD_RE.test(k)){ delete wikiCache[k]; n++; }
+    });
+    if(n) save(LS_WIKI,wikiCache);
+    save(LS_FOODFIX,1);
+  }catch(e){}
+})();
+
 function showInfo(item){
   var e=effective(item);
   var query=cleanWikiQuery(e.title);
@@ -3637,8 +3663,42 @@ function showInfo(item){
   }
 
   var cacheKey="v8|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
-  var cached=wikiCache[cacheKey];
+  var isFoodNow=isFoodItem(item,e.title);
+  var cached=isFoodNow?null:wikiCache[cacheKey];   /* 식당은 예전에 잘못 저장된 위키 설명을 쓰지 않음 */
   if(cached){ renderInfo(cached); return; }
+
+  /* ── 식당·카페: 위키 조회를 건너뛰고 후기 요약을 바로 보여준다 ── */
+  if(isFoodNow){
+    var fk="food|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
+    var fc=wikiCache[fk];
+    if(fc){ renderInfo(fc); return; }
+    if(!AI_WORKER||!navigator.onLine){
+      bEl.textContent="식당 후기는 인터넷 연결이 필요합니다.\n\n인터넷이 되는 곳에서 한 번 열면 저장됩니다.";
+      sEl.innerHTML=""; return;
+    }
+    bEl.textContent="🍽 한국어·현지 후기를 모으는 중…";
+    fetch(AI_WORKER,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        name:(placeQuery(item)||query),
+        kind:"food",
+        lat:item.lat!=null?item.lat:null,
+        lng:item.lat!=null?item.lng:null,
+        wiki:""
+      })
+    }).then(function(r){ return r.json(); }).then(function(j){
+      var txt=(j&&j.summary)||"";
+      if(!txt){ bEl.textContent="후기를 찾지 못했습니다. 현장에서 확인하세요."; return; }
+      var d={extract:txt,img:"",url:"",srcNote:"네이버 블로그·카페 + 구글 지도 리뷰 (AI 정리)",
+             _tid:(currentTrip()||{}).id||"",_t:Date.now()};
+      wikiCache[fk]=d; save(LS_WIKI,wikiCache);
+      renderInfo(d);
+    }).catch(function(){
+      bEl.textContent="후기를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    });
+    return;
+  }
 
   bEl.textContent="🔎 인터넷에서 설명을 찾는 중…";
   lookupInfo(item,query,enQuery)
@@ -3739,7 +3799,7 @@ function placePrefetch(silent){
       /* v19.5: 위키 근거가 없으면 AI를 부르지 않음.
          (근거 없이 요약하면 인근 다른 장소 설명이 만들어짐) */
       var it=t.item;
-      var isFood=(kindOf(it,effective(it).title).k==="meal")||/식당|레스토랑|restaurant|카페\b|cafe|다이닝|맛집/i.test(effective(it).title||"");
+      var isFood=isFoodItem(it);
       /* v20.6 식당은 위키 대신 한국인 블로그·카페 후기로 요약한다 */
       if(!isFood&&(!data||!data.extract||data.srcNote==="유형 안내")) return null;
       return fetch(AI_WORKER,{
