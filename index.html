@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v20.5 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v20.6 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -3579,8 +3579,10 @@ document.getElementById("aiSumBtn").addEventListener("click",function(){
   if(!aiCurrent||!AI_WORKER) return;
   var cached=aiCache[aiCurrent.key];
   if(cached){ renderAi(cached.text,cached.model); return; }
-  if(!aiCurrent.wikiExtract){
-    /* v19.5: 근거 자료가 없을 때 AI를 부르면 인근 다른 장소 설명이 나옴 → 만들지 않음 */
+  var aiFood=/식당|레스토랑|restaurant|카페\b|cafe|다이닝|맛집|저녁|점심/i.test(aiCurrent.name||"");
+  if(!aiCurrent.wikiExtract&&!aiFood){
+    /* 근거 자료가 없을 때 AI를 부르면 인근 다른 장소 설명이 나옴 → 만들지 않음
+       단 식당은 워커가 한국인 후기를 찾아 요약하므로 허용 */
     this.disabled=true;
     this.textContent="🤖 확인된 자료가 없어 요약을 만들지 않습니다";
     return;
@@ -3736,13 +3738,16 @@ function placePrefetch(silent){
       if(!t.needAi||!AI_WORKER) return null;
       /* v19.5: 위키 근거가 없으면 AI를 부르지 않음.
          (근거 없이 요약하면 인근 다른 장소 설명이 만들어짐) */
-      if(!data||!data.extract||data.srcNote==="유형 안내") return null;
       var it=t.item;
+      var isFood=(kindOf(it,effective(it).title).k==="meal")||/식당|레스토랑|restaurant|카페\b|cafe|다이닝|맛집/i.test(effective(it).title||"");
+      /* v20.6 식당은 위키 대신 한국인 블로그·카페 후기로 요약한다 */
+      if(!isFood&&(!data||!data.extract||data.srcNote==="유형 안내")) return null;
       return fetch(AI_WORKER,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
-          name:effective(it).title,
+          name:placeQuery(it)||effective(it).title,
+          kind:isFood?"food":"",
           lat:it.lat!=null?it.lat:null,
           lng:it.lat!=null?it.lng:null,
           wiki:((data&&data.extract)||"").slice(0,1500)
