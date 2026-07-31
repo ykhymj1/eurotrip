@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v22.4 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v22.5 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -4000,27 +4000,41 @@ function placePrefetch(silent){
     return;
   }
   preRunning=true;
-  var i=0, ok=0, none=0;
+  var i=0, ok=0, none=0, running=0, finished=false;
+  var PRE_PAR=3;          /* v22.5 동시에 3곳씩 — 한 곳당 왕복이 많아 순차로는 너무 느림 */
+  var PRE_TMO=15000;      /* 한 곳이 15초를 넘기면 건너뛴다 (한 곳이 멈추면 전체가 멈추던 문제) */
+  function withTimeout(pr){
+    return new Promise(function(res){
+      var t2=setTimeout(function(){ res(null); },PRE_TMO);
+      Promise.resolve(pr).then(function(v){ clearTimeout(t2); res(v); },
+                               function(){ clearTimeout(t2); res(null); });
+    });
+  }
   function done(){
+    if(finished) return;
+    finished=true;
     preRunning=false;
     save(LS_WIKI,wikiCache); save(LS_AI,aiCache);
     var left=prefetchRemain();
     save(LS_WIKI,wikiCache);
-    if(left) status("ℹ️ 설명·후기 "+ok+"곳 저장 · "+left+"곳 남음 (인터넷 연결 시 자동 재시도)");
+    if(left) status("ℹ️ 설명·후기 "+ok+"곳 저장 · "+left+"곳 남음 — 다시 시도하려면 ☁ 설정을 여세요");
     else if(none) status("✔ 설명·후기 "+ok+"곳 준비 완료 · "+none+"곳은 자료 없음 (재시도 안 함)");
     else status("✔ 설명·후기 "+ok+"곳 준비 완료 · 오프라인에서도 열립니다");
     render();
   }
   function next(){
-    if(i>=list.length||!navigator.onLine){ done(); return; }
+    if(!navigator.onLine){ if(running<=0) done(); return; }
+    if(i>=list.length){ if(running<=0) done(); return; }
+    if(running>=PRE_PAR) return;
+    running++;
     var t=list[i++];
     preTried[t.k.wiki]=(preTried[t.k.wiki]||0)+1;
-    status("ℹ️ 설명·후기 받는 중… "+i+"/"+list.length+" · "+effective(t.item).title.slice(0,16));
+    status("ℹ️ 설명·후기 "+(ok+none)+"/"+list.length+"곳 저장 중… "+effective(t.item).title.slice(0,14));
 
     /* v21.3 식당·시설: 화면과 같은 캐시 키에 미리 저장해 둔다 (열 때 즉시·오프라인) */
     if(t.needPlace){
-      if(!AI_WORKER){ setTimeout(next,50); return; }
-      fetch(AI_WORKER,{
+      if(!AI_WORKER){ running--; setTimeout(next,50); return; }
+      var pr0=fetch(AI_WORKER,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
@@ -4030,7 +4044,8 @@ function placePrefetch(silent){
           lng:t.item.lat!=null?t.item.lng:null,
           wiki:""
         })
-      }).then(function(r){ return r.json(); }).then(function(j){
+      });
+      withTimeout(pr0.then(function(r){ return r.json(); })).then(function(j){
         var txt=(j&&j.summary)||"";
         if(txt&&!/찾지 못했습니다/.test(txt)){
           wikiCache[t.k.place]={extract:txt,img:"",url:"",
@@ -4044,9 +4059,9 @@ function placePrefetch(silent){
             srcNote:"자료 없음",_tid:t.tid,_t:Date.now()};
           none++;
         }
-        if((ok+none)%3===0){ save(LS_WIKI,wikiCache); }
-        setTimeout(next,400);
-      }).catch(function(){ setTimeout(next,400); });
+        save(LS_WIKI,wikiCache);
+        running--; setTimeout(next,120);
+      }).catch(function(){ running--; setTimeout(next,120); });
       return;
     }
 
@@ -4100,7 +4115,7 @@ function placePrefetch(silent){
           });
         })
       : Promise.resolve(wikiCache[t.k.wiki]);
-    wikiStep.then(function(data){
+    withTimeout(wikiStep).then(function(data){
       if(!t.needAi||!AI_WORKER) return null;
       /* v19.5: 위키 근거가 없으면 AI를 부르지 않음.
          (근거 없이 요약하면 인근 다른 장소 설명이 만들어짐) */
@@ -4123,11 +4138,12 @@ function placePrefetch(silent){
       }).catch(function(){});
     }).then(function(){
       ok++;
-      if(i%5===0){ save(LS_WIKI,wikiCache); save(LS_AI,aiCache); }
-      setTimeout(next,350); /* 위키·Worker 부하 분산 */
-    }).catch(function(){ setTimeout(next,350); });
+      save(LS_WIKI,wikiCache); save(LS_AI,aiCache);   /* 매 건 저장 — 중간에 끊겨도 남는다 */
+      running--; setTimeout(next,120);
+    }).catch(function(){ running--; setTimeout(next,120); });
   }
-  next();
+  /* 동시에 여러 곳을 진행 */
+  for(var p0=0;p0<PRE_PAR;p0++) setTimeout(next,p0*150);
 }
 
 /* 특정 여행의 관광지 캐시 삭제 (여행 삭제 시 호출) */
