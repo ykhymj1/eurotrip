@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v22.2 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v22.3 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -3864,6 +3864,10 @@ function showInfo(item){
   function placeInfoPath(kd,why){
     var fk=kd+"|"+(item.lat!=null?item.lat.toFixed(4)+","+item.lng.toFixed(4)+"|":"")+query;
     var fc=wikiCache[fk];
+    if(fc&&fc.none){
+      bEl.textContent="이 장소의 설명·후기를 찾지 못했습니다.\n\n✏️에서 이름을 공식 명칭(현지어·영문)으로 바꾸면 검색이 잘 되기도 합니다.";
+      sEl.innerHTML=""; return;
+    }
     if(fc){ renderInfo(fc); return; }
     if(!AI_WORKER||!navigator.onLine){
       bEl.textContent="후기는 인터넷 연결이 필요합니다.\n\n인터넷이 되는 곳에서 한 번 열면 저장되고, 동기화된 다른 기기에서도 오프라인으로 보입니다.";
@@ -3980,7 +3984,10 @@ function prefetchTargets(){
   });
   return out;
 }
-function prefetchRemain(){ return prefetchTargets().length; }
+function prefetchRemain(){
+  /* 3회까지 시도한 뒤에도 안 되는 곳은 "남음"으로 세지 않는다 */
+  return prefetchTargets().filter(function(x){ return (preTried[x.k.wiki]||0)<3; }).length;
+}
 
 function placePrefetch(silent){
   if(preRunning) return;
@@ -3991,14 +3998,15 @@ function placePrefetch(silent){
     return;
   }
   preRunning=true;
-  var i=0, ok=0;
+  var i=0, ok=0, none=0;
   function done(){
     preRunning=false;
     save(LS_WIKI,wikiCache); save(LS_AI,aiCache);
     var left=prefetchRemain();
-    infoPush();
-    status(left? ("ℹ️ 설명·후기 "+ok+"곳 저장 · "+left+"곳 남음 (자동 재시도)")
-               : ("✔ 설명·후기 "+ok+"곳 준비 완료 · 오프라인·다른 기기에서도 열립니다"));
+    save(LS_WIKI,wikiCache);
+    if(left) status("ℹ️ 설명·후기 "+ok+"곳 저장 · "+left+"곳 남음 (인터넷 연결 시 자동 재시도)");
+    else if(none) status("✔ 설명·후기 "+ok+"곳 준비 완료 · "+none+"곳은 자료 없음 (재시도 안 함)");
+    else status("✔ 설명·후기 "+ok+"곳 준비 완료 · 오프라인에서도 열립니다");
     render();
   }
   function next(){
@@ -4027,8 +4035,14 @@ function placePrefetch(silent){
             srcNote:"구글 지도 리뷰 + 네이버 블로그·카페 (AI 정리)",
             _tid:t.tid,_t:Date.now()};
           ok++;
-          if(ok%3===0){ save(LS_WIKI,wikiCache); infoPush(); }
+        }else{
+          /* v22.3 자료가 없는 곳도 결과를 남겨 둔다.
+             안 그러면 "8곳 남음"이 영원히 사라지지 않고 계속 다시 조회한다. */
+          wikiCache[t.k.place]={extract:"",none:1,
+            srcNote:"자료 없음",_tid:t.tid,_t:Date.now()};
+          none++;
         }
+        if((ok+none)%3===0){ save(LS_WIKI,wikiCache); }
         setTimeout(next,400);
       }).catch(function(){ setTimeout(next,400); });
       return;
