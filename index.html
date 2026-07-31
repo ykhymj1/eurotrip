@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v22.0 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v22.1 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -400,6 +400,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
     <div class="hint" style="margin-top:2px">엉뚱한 설명이 계속 보이면 눌러주세요. 저장된 설명·후기를 지우고 다시 받습니다(일정·바우처는 그대로).</div>
     <div class="btnrow" style="margin-top:6px">
       <button class="cancel-btn" id="tripDedupeBtn">🗂 중복 여행 정리</button>
+      <button class="cancel-btn" id="diagBtn">🩺 상태 진단</button>
     </div>
     <div id="navPrefState" class="hint"></div>
 
@@ -440,6 +441,31 @@ var wikiCache=loadObj(LS_WIKI,{});
 
 function currentTrip(){
   return trips.find(function(t){ return t.id===currentId; })||trips[0]||null;
+}
+
+/* ===== v22.1 일정 소실 방지 =====
+   "여행 없음"이 뜨는데 설명 사전수집은 27곳을 돌던 증상 =
+   trips 가 중간에 비워지고 있다는 뜻. 어디서 비우든 되살릴 수 있게
+   마지막 정상 상태를 따로 보관하고, 명시적 삭제가 아닌데 비면 복구한다. */
+var LS_TRIPBAK="wtrip_trips_backup_v1";
+var tripDeleteIntent=false;          /* 🗑 버튼으로 지울 때만 true */
+function tripsBackup(){
+  if(!trips.length) return;
+  try{ save(LS_TRIPBAK,{trips:trips,cur:currentId,t:Date.now()}); }catch(e){}
+}
+function tripsGuard(where){
+  if(trips.length||tripDeleteIntent) { tripsBackup(); return false; }
+  var b=loadObj(LS_TRIPBAK,null);
+  if(!b||!b.trips||!b.trips.length) return false;
+  /* 삭제표시가 붙은 것은 되살리지 않는다 */
+  var restore=b.trips.filter(function(t){ return t&&t.id&&!deletedTrips[t.id]; });
+  if(!restore.length) return false;
+  trips=restore;
+  currentId=(b.cur&&restore.some(function(t){ return t.id===b.cur; }))?b.cur:restore[0].id;
+  save(LS_TRIPS,trips); save(LS_CUR,currentId);
+  console.warn("[여행 복구] "+where+" 에서 일정이 비워져 백업에서 되살렸습니다:",restore.length+"개");
+  status("♻ 일정이 사라져 자동 복구했습니다 ("+restore.length+"개)");
+  return true;
 }
 
 /* ================= 유틸 ================= */
@@ -774,7 +800,9 @@ function geoResolveOne(nm,lat,lng){
 function geoTargets(){
   geoPurgeOld();
   var out=[];
-  trips.forEach(function(t){
+  var only=currentTrip();
+  if(!only) return out;
+  [only].forEach(function(t){
     t.days.forEach(function(d){
       d.items.forEach(function(it){
         if(it.lat==null) return;
@@ -2875,6 +2903,7 @@ function emptyHTML(){
 }
 
 function render(){
+  tripsGuard("render");
   docsReanalyzeIfNeeded();
   var trip=currentTrip();
   if(trip) currentId=trip.id;
@@ -3266,6 +3295,7 @@ function handlePdf(file){
     render(); /* 화면 갱신 우선 */
     window.scrollTo({top:0});
     try{ syncPush(); }catch(e){}
+    tripsBackup();
     var newTrip=trips[trips.length-1];
     setTimeout(function(){ itinFlightRegister(newTrip); },200);            /* 일정표 편명으로 항공 추적 */
     setTimeout(function(){ regionPrefetch(); geoPrefetch(false); },400);   /* 장소명↔좌표 대조 */
@@ -3355,6 +3385,7 @@ document.getElementById("delTripBtn").addEventListener("click",function(){
   var nQr=Object.keys(qrState.items).filter(function(k){ return tripDates[qrState.items[k].date]; }).length;
   if(!confirm("⚠️ 여행을 삭제하시겠습니까?\n\n\""+trip.name+"\"\n\n함께 삭제되는 항목:\n· 티켓·바우처 "+nDoc+"개\n· QR "+nQr+"장\n· 관광지 설명·AI 요약 캐시\n· 일정 전체\n\n📱 내 기기 + ☁️ 서버 + 연결된 다른 기기\n모두에서 삭제되며, 되돌릴 수 없습니다.\n\n계속하시려면 [확인]을 누르세요.")) return;
 
+  tripDeleteIntent=true;              /* 명시적 삭제 — 자동 복구 금지 */
   /* 1) 문서 삭제 (로컬 + IndexedDB + Firebase) */
   Object.keys(docsState.items).forEach(function(k){
     if(docsState.items[k].tripId!==trip.id) return;
@@ -3398,6 +3429,7 @@ document.getElementById("delTripBtn").addEventListener("click",function(){
   }
 
   /* 삭제는 명시적 조작이므로 빈 상태라도 서버에 반영해야 한다 */
+  try{ localStorage.removeItem(LS_TRIPBAK); }catch(e){}
   syncPush(true);
   status("🗑 여행 · 문서 "+nDoc+"개 · QR "+nQr+"장 · 설명/좌표 캐시 "+nPlace+"건 삭제 완료");
   render();
@@ -3895,7 +3927,9 @@ function placeKeys(item){
 /* 캐시가 없는 관광지 목록 */
 function prefetchTargets(){
   var out=[];
-  trips.forEach(function(t){
+  var only=currentTrip();
+  if(!only) return out;                 /* 여행이 없으면 아무것도 받지 않는다 */
+  [only].forEach(function(t){
     var cityMap=buildCityMap(t);
     t.days.forEach(function(d){
       d.items.forEach(function(it){
@@ -4165,6 +4199,7 @@ function startSync(){
       }
       lastApplied=v.updatedAt;
       applyingRemote=false;
+      tripsGuard("sync");
       render();
       if(mg.tookLocal){
         setTimeout(syncPush,400); /* 병합 결과를 서버에 재전송해 모든 기기 수렴 */
@@ -4241,6 +4276,20 @@ document.getElementById("infoClearBtn").addEventListener("click",function(){
   status("🧹 설명 캐시 "+n+"건 삭제 · 다시 받는 중…");
   render();
   setTimeout(function(){ placePrefetch(false); },400);
+});
+document.getElementById("diagBtn").addEventListener("click",function(){
+  var b=loadObj(LS_TRIPBAK,null);
+  var lines=[
+    "여행 "+trips.length+"개"+(trips.length?(" ("+trips.map(function(t){ return t.name+"/"+t.days.length+"일"; }).join(", ")+")"):""),
+    "현재 선택: "+(currentTrip()?currentTrip().name:"(없음)")+"  id="+currentId,
+    "백업: "+(b&&b.trips?b.trips.length+"개":"없음"),
+    "삭제표시: "+Object.keys(deletedTrips).length+"개",
+    "동기화: "+(syncCode?("연결 "+syncCode):"미연결")+" · 원격에서 본 여행 최대 "+syncSeenRemoteTrips+"개",
+    "문서 "+Object.keys(docsState.items).length+"개 · 설명캐시 "+Object.keys(wikiCache).length+"건 · AI "+Object.keys(aiCache).length+"건",
+    "좌표검증 "+Object.keys(geoCache).length+"건"
+  ];
+  alert("🩺 상태 진단\n\n"+lines.join("\n"));
+  console.log("[진단]",{trips:trips,currentId:currentId,deletedTrips:deletedTrips,backup:b,syncCode:syncCode});
 });
 document.getElementById("tripDedupeBtn").addEventListener("click",function(){
   var before=trips.length;
