@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v22.6 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v22.7 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -402,6 +402,15 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
       <button class="cancel-btn" id="tripDedupeBtn">🗂 중복 여행 정리</button>
       <button class="cancel-btn" id="diagBtn">🩺 상태 진단</button>
     </div>
+    <h3 style="margin-top:18px">🔒 삭제 잠금 (이 기기)</h3>
+    <div class="hint" style="margin-top:2px">여행 중 실수로 지우는 사고를 막습니다. 잠그면 <b>이 기기에서만</b> 여행·일정·바우처·QR의 🗑 버튼이 사라집니다. <b>PDF·바우처 업로드는 그대로</b> 됩니다. 휴대폰은 처음부터 잠겨 있고, PC는 해제 상태입니다.</div>
+    <div class="btnrow" style="margin-top:8px">
+      <button class="save-btn" id="delLockOn">🔒 잠금</button>
+      <button class="cancel-btn" id="delLockOff">🔓 해제</button>
+    </div>
+    <div id="delLockState" class="hint"></div>
+    <div class="btnrow" style="margin-top:6px">
+    </div>
     <div id="navPrefState" class="hint"></div>
 
     <div class="btnrow" style="margin-top:14px">
@@ -438,6 +447,30 @@ var trips=loadObj(LS_TRIPS,[]);
 var currentId=loadObj(LS_CUR,null);
 var edits=loadObj(LS_EDIT,{}), done=loadObj(LS_DONE,{});
 var wikiCache=loadObj(LS_WIKI,{});
+
+/* ===== v22.7 휴대폰 삭제 잠금 =====
+   여행 중 손이 스쳐 일정·바우처를 지우는 사고를 막는다.
+   삭제는 PC에서만, 업로드는 휴대폰·PC 모두 그대로. */
+var IS_MOBILE=(function(){
+  try{
+    if(navigator.userAgentData&&typeof navigator.userAgentData.mobile==="boolean")
+      return navigator.userAgentData.mobile;
+  }catch(e){}
+  var ua=String(navigator.userAgent||"");
+  if(/iPhone|iPad|iPod|Android|Mobile|Silk|Kindle/i.test(ua)) return true;
+  /* 아이패드는 데스크톱 UA를 쓰므로 터치 여부로 한 번 더 */
+  return (navigator.maxTouchPoints>1&&!/Windows NT|Macintosh/i.test(ua));
+})();
+var LS_DELLOCK="wtrip_dellock_v1";
+var delLocked=loadObj(LS_DELLOCK,IS_MOBILE?1:0);   /* 휴대폰이면 기본 잠금 */
+/* 잠금은 기기별로 저장된다. 휴대폰은 기본 잠금, PC는 기본 해제.
+   아이패드처럼 판별이 애매한 기기도 설정에서 직접 잠글 수 있다. */
+function delBlocked(){ return delLocked===1; }
+function delGuard(what){
+  if(!delBlocked()) return false;
+  status("🔒 이 기기는 삭제가 잠겨 있습니다 — "+(what||"삭제")+"는 PC에서 하세요 (☁ 설정에서 해제)");
+  return true;
+}
 
 function currentTrip(){
   return trips.find(function(t){ return t.id===currentId; })||trips[0]||null;
@@ -2022,7 +2055,7 @@ function docRenderList(){
       +'<select data-docdate="'+esc(d.id)+'"><option value="">날짜 지정/변경…</option>'+opts+'</select>'
       +'</div>'
       +'<button class="open" data-docopen="'+esc(d.id)+'">보기</button>'
-      +'<button class="rm" data-docdel="'+esc(d.id)+'">🗑</button>'
+      +(delBlocked()?'':'<button class="rm" data-docdel="'+esc(d.id)+'">🗑</button>')
       +'</div>';
   });
   el.innerHTML=h;
@@ -2596,7 +2629,7 @@ function qrRenderList(){
         +(function(){ var L=qrDaysLeft(q.date); return (L!=null&&L<=7)?' · <span style="color:#B04A3A">자동삭제 D-'+L+'</span>':""; })()
         +'</div></div>'
         +'<button class="open" data-qropen="'+esc(q.id)+'">보기</button>'
-        +'<button class="rm" data-qrdel="'+esc(q.id)+'">🗑</button>'
+        +(delBlocked()?'':'<button class="rm" data-qrdel="'+esc(q.id)+'">🗑</button>')
         +'</div>';
     });
     h+='</div>';
@@ -2882,7 +2915,7 @@ function itemHTML(item,dateKey,kind,computedWalk,an){
     }
   }
   btns+='<button class="edit-btn" data-edit="'+item.id+'">✏️</button>';
-  btns+='<button class="del-btn" data-del="'+item.id+'">🗑</button>';
+  if(!delBlocked()) btns+='<button class="del-btn" data-del="'+item.id+'">🗑</button>';
   h+='<div class="btnrow">'+btns+'</div></div>';
   return h;
 }
@@ -3384,6 +3417,7 @@ document.getElementById("tripSel").addEventListener("change",function(ev){
   window.scrollTo({top:0});
 });
 document.getElementById("delTripBtn").addEventListener("click",function(){
+  if(delGuard("여행 삭제")) return;
   var trip=currentTrip();
   if(!trip){ status("삭제할 여행이 없습니다"); return; }
   var tripDates={}; trip.days.forEach(function(d){ tripDates[d.date]=1; });
@@ -4401,10 +4435,31 @@ document.getElementById("infoClearBtn").addEventListener("click",function(){
   render();
   setTimeout(function(){ placePrefetch(false); },400);
 });
+function delLockRender(){
+  var el=document.getElementById("delLockState");
+  if(!el) return;
+  el.textContent=(delLocked?"현재: 🔒 잠김 ✓ — 이 기기에서는 삭제 버튼이 숨겨집니다"
+                           :"현재: 🔓 해제 — 이 기기에서 삭제할 수 있습니다")
+                 +"  ("+(IS_MOBILE?"휴대폰으로 인식됨":"PC로 인식됨")+")";
+  var b1=document.getElementById("delLockOn"), b2=document.getElementById("delLockOff");
+  if(b1&&b2){
+    b1.className=delLocked?"save-btn":"cancel-btn";
+    b2.className=delLocked?"cancel-btn":"save-btn";
+  }
+}
+document.getElementById("delLockOn").addEventListener("click",function(){
+  delLocked=1; save(LS_DELLOCK,1); delLockRender(); render();
+  status("🔒 휴대폰 삭제 잠금 켜짐");
+});
+document.getElementById("delLockOff").addEventListener("click",function(){
+  if(!confirm("이 기기에서 삭제할 수 있게 됩니다.\n여행 중 실수로 일정·바우처를 지울 수 있습니다.\n\n정말 해제할까요?")) return;
+  delLocked=0; save(LS_DELLOCK,0); delLockRender(); render();
+  status("🔓 삭제 잠금 해제됨");
+});
 document.getElementById("diagBtn").addEventListener("click",function(){
   var b=loadObj(LS_TRIPBAK,null);
   var lines=[
-    "앱 v"+APP_VER,
+    "앱 v"+APP_VER+" · "+(IS_MOBILE?"휴대폰":"PC")+" · 삭제 "+(delBlocked()?"잠김":"가능"),
     "여행 "+trips.length+"개"+(trips.length?(" ("+trips.map(function(t){ return t.name+"/"+t.days.length+"일"; }).join(", ")+")"):""),
     "현재 선택: "+(currentTrip()?currentTrip().name:"(없음)")+"  id="+currentId,
     "백업: "+(b&&b.trips?b.trips.length+"개":"없음"),
@@ -4430,6 +4485,7 @@ document.getElementById("navPrefCoord").addEventListener("click",function(){
 /* 동기화 설정 UI */
 var syncOverlayEl=document.getElementById("syncOverlay");
 document.getElementById("syncBtn").addEventListener("click",function(){
+  try{ delLockRender(); }catch(e){}
   document.getElementById("f_synccode").value=syncCode||"";
   document.getElementById("syncState").textContent=syncCode?("현재 연결됨: "+syncCode):"현재 미연결 — 이 기기에만 저장 중";
   syncOverlayEl.classList.add("show");
@@ -4534,6 +4590,8 @@ document.getElementById("saveBtn").addEventListener("click",function(){
 
 /* ================= 이벤트 위임 ================= */
 document.body.addEventListener("click",function(ev){
+  var dEl=ev.target.closest("[data-del],[data-docdel],[data-qrdel]");
+  if(dEl&&delGuard("항목·바우처 삭제")){ ev.preventDefault(); ev.stopPropagation(); return; }
   var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll],[data-qrdate],[data-qropen],[data-qrdel],[data-docdate2],[data-docopen],[data-docdel],[data-docmulti],[data-pickopen]");
   if(!el) return;
   if(el.dataset.docdate2){ docOpenWallet(el.dataset.docdate2); return; }
