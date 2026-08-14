@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v23.3 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v23.4 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -401,6 +401,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
     <div class="btnrow" style="margin-top:6px">
       <button class="cancel-btn" id="tripDedupeBtn">🗂 중복 여행 정리</button>
       <button class="cancel-btn" id="diagBtn">🩺 상태 진단</button>
+      <button class="cancel-btn" id="swResetBtn">🔄 캐시 새로 받기</button>
     </div>
     <h3 style="margin-top:18px">🔒 삭제 잠금 (이 기기)</h3>
     <div class="hint" style="margin-top:2px">여행 중 실수로 지우는 사고를 막습니다. 잠그면 <b>이 기기에서만</b> 여행·일정·바우처·QR의 🗑 버튼이 사라집니다. <b>PDF·바우처 업로드는 그대로</b> 됩니다. 휴대폰은 처음부터 잠겨 있고, PC는 해제 상태입니다.</div>
@@ -3862,8 +3863,10 @@ function swVersionCheck(){
         if(!hit) return;
         var m=hit.match(/v(\d+\.\d+)/);
         var swv=m?m[1]:"?";
-        if(swv!==APP_VER)
-          status("⚠ 버전 불일치 — 화면 v"+APP_VER+" / 캐시 v"+swv+" · sw.js 도 함께 올려주세요");
+        if(swv!==APP_VER){
+          status("⚠ 버전 불일치 — 화면 v"+APP_VER+" / 캐시 v"+swv
+                +" · 🩺 상태 진단에서 [캐시 새로 받기]를 눌러주세요");
+        }
       });
     }catch(e){}
   },2500);
@@ -4566,6 +4569,24 @@ function workerProbe(){
   });
 }
 
+document.getElementById("swResetBtn").addEventListener("click",function(){
+  if(!confirm("저장된 화면 캐시를 지우고 최신 버전을 다시 받습니다.\n일정·바우처·설명은 그대로입니다.\n\n진행할까요?")) return;
+  status("🔄 캐시 정리 중…");
+  var jobs=[];
+  try{ jobs.push(caches.keys().then(function(ks){
+    return Promise.all(ks.filter(function(k){ return k.indexOf("wtrip-")===0; })
+                         .map(function(k){ return caches.delete(k); }));
+  })); }catch(e){}
+  try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations)
+    jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){
+      return Promise.all(rs.map(function(r){ return r.unregister(); }));
+    })); }catch(e){}
+  Promise.all(jobs).then(function(){
+    status("✅ 정리 완료 — 새로고침합니다");
+    setTimeout(function(){ location.reload(true); },600);
+  }).catch(function(){ location.reload(true); });
+});
+
 document.getElementById("diagBtn").addEventListener("click",function(){
   var b=loadObj(LS_TRIPBAK,null);
   var lines=[
@@ -4862,8 +4883,39 @@ if(syncCode) startSync(); /* 연결되면 Firebase 쪽 삭제도 자동 반영 *
 setTimeout(function(){ regionPrefetch(); geoPrefetch(true); },1500); /* 장소명↔좌표 대조(조용히) */
 setTimeout(function(){ placePrefetch(true); },3000); /* 관광지 설명 미리 받기(조용히) */
 
+/* ===== v23.4 서비스워커가 옛 버전에 머무르던 문제 =====
+   브라우저는 sw.js 스크립트 자체를 HTTP 캐시(GitHub Pages = 10분)에서 가져온다.
+   그래서 새 sw.js 를 올려도 옛 것을 계속 등록하고, 화면과 캐시 버전이 어긋났다.
+     · updateViaCache:"none"  → sw.js 는 항상 서버에서 새로 받는다
+     · 주기적 update()        → 앱을 켜 둔 채로도 새 버전을 찾아낸다
+     · 새 버전이 대기하면 알림 → 눌러서 즉시 적용 */
 if("serviceWorker" in navigator){
-  navigator.serviceWorker.register("./sw.js").catch(function(){});
+  navigator.serviceWorker.register("./sw.js",{updateViaCache:"none"}).then(function(reg){
+    try{ reg.update(); }catch(e){}
+    setInterval(function(){ try{ reg.update(); }catch(e){} },30*60*1000);
+    function offerUpdate(sw){
+      if(!sw) return;
+      sw.addEventListener("statechange",function(){
+        if(sw.state==="installed"&&navigator.serviceWorker.controller) showSwReady();
+      });
+    }
+    if(reg.waiting&&navigator.serviceWorker.controller) showSwReady();
+    offerUpdate(reg.installing);
+    reg.addEventListener("updatefound",function(){ offerUpdate(reg.installing); });
+    function showSwReady(){
+      status("🔄 새 버전이 준비됐습니다 — 화면을 새로고침하면 적용됩니다");
+      try{
+        if(reg.waiting) reg.waiting.postMessage({type:"skip-waiting"});
+      }catch(e){}
+    }
+  }).catch(function(){});
+  /* 새 워커가 제어권을 가져가면 한 번만 자동 새로고침 */
+  var swReloaded=false;
+  navigator.serviceWorker.addEventListener("controllerchange",function(){
+    if(swReloaded) return;
+    swReloaded=true;
+    setTimeout(function(){ location.reload(); },300);
+  });
 }
 </script>
 </body>
