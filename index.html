@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v23.5 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v23.6 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1866,8 +1866,9 @@ function docAddFile(file){
           rec.type="air";
           if(bp.date) rec.dates=[bp.date];
           if(bp.name) rec.person=bp.name.split(/[\s,\/]+/)[0].replace(/^(.)(.*)$/,function(_,a,b){ return a.toUpperCase()+b.toLowerCase(); });
-          rec.boarding={flight:bp.flight,date:bp.date,from:bp.from,to:bp.to,dep:bp.dep,seat:bp.seat,gate:bp.gate};
+          rec.boarding={flight:bp.flight,flight2:bp.flight2||"",date:bp.date,from:bp.from,to:bp.to,dep:bp.dep,board:bp.board||"",seat:bp.seat,gate:bp.gate,terminal:bp.terminal||""};
           if(bp.flight) rec.keys=(rec.keys||[]).concat([bp.flight.toLowerCase()]);
+          if(bp.flight2) rec.keys=(rec.keys||[]).concat([bp.flight2.toLowerCase()]);
           docsSave();
           scanNote=" · 🎫 "+(bp.flight||"탑승권")
                   +(bp.from&&bp.to?(" "+bp.from+"→"+bp.to):"")
@@ -2030,6 +2031,49 @@ function flightNosIn(str){
   return out;
 }
 
+/* ===== v23.6 탑승권을 정확한 항공 항목에 붙이기 =====
+   같은 날 항공 항목이 여럿이면(인천 출발 / 나리타 도착 / 나리타 출발) 날짜만으로는 못 가른다.
+   탑승권에서 읽은 편명·출발공항·출발시각을 항목과 하나하나 대조한다. */
+var AIRPORT_ALIAS={
+  ICN:["인천","incheon"], GMP:["김포","gimpo"], PUS:["김해","부산","busan"], CJU:["제주","jeju"],
+  NRT:["나리타","narita"], HND:["하네다","haneda"], KIX:["간사이","오사카","kansai"],
+  FUK:["후쿠오카","fukuoka"], CTS:["삿포로","치토세","sapporo","chitose"],
+  HEL:["헬싱키","helsinki","vantaa"], OSL:["오슬로","oslo","gardermoen"],
+  SVG:["스타방에르","stavanger","sola"], AES:["올레순","alesund","ålesund","vigra"],
+  EVE:["에베네스","evenes","하르스타","harstad","narvik"], BGO:["베르겐","bergen","flesland"],
+  TOS:["트롬쇠","tromso","tromsø"], BOO:["보되","bodo","bodø"], TRD:["트론헤임","trondheim"],
+  CPH:["코펜하겐","copenhagen","kastrup"], ARN:["스톡홀름","stockholm","arlanda"],
+  CDG:["파리","paris","charles"], LHR:["런던","london","heathrow"],
+  FRA:["프랑크푸르트","frankfurt"], AMS:["암스테르담","amsterdam","schiphol"]
+};
+function airportsIn(text){
+  var t=String(text||"").toLowerCase(), out=[];
+  Object.keys(AIRPORT_ALIAS).forEach(function(code){
+    if(new RegExp("\\b"+code.toLowerCase()+"\\b").test(t)){ out.push(code); return; }
+    if(AIRPORT_ALIAS[code].some(function(a){ return t.indexOf(a)>=0; })) out.push(code);
+  });
+  return out;
+}
+/* 탑승권이 이 항목에 붙어도 되는지 — 근거가 하나도 없으면 붙이지 않는다 */
+function boardingFits(bp,item,title,itemTime){
+  if(!bp) return 0;
+  var itemFl=flightNosIn(title);
+  var bFl=flightNosIn((bp.flight||"")+" "+(bp.flight2||""));
+  if(itemFl.length&&bFl.length&&itemFl.some(function(f){ return bFl.indexOf(f)>=0; })) return 40;
+
+  var isDep=/출발|departure|depart|이륙/i.test(title);
+  var isArr=/도착|arrival|arrive|착륙/i.test(title);
+  var aps=airportsIn(title);
+
+  /* 출발 항목 + 탑승권 출발공항 일치 */
+  if(isDep&&bp.from&&aps.indexOf(bp.from)>=0) return 30;
+  /* 도착 항목 + 탑승권 도착공항 일치 */
+  if(isArr&&bp.to&&aps.indexOf(bp.to)>=0) return 20;
+  /* 공항은 못 맞췄지만 출발 시각이 정확히 같음 */
+  if(isDep&&bp.dep&&itemTime&&String(itemTime).slice(0,5)===String(bp.dep).slice(0,5)) return 15;
+  return 0;
+}
+
 function docsForItem(item,dayDate){
   if(!item||!dayDate) return [];
   var trip=currentTrip();
@@ -2051,6 +2095,13 @@ function docsForItem(item,dayDate){
     var sc=docKeyScore(d.keys,title);
     if(d.type==="air"){
       if(!fit) return;               /* 항공권: 공항 출발 항목에만 (엄격) */
+      /* v23.6 탑승권(QR)은 편명·공항·시각을 대조해 딱 맞는 항목에만 */
+      if(d.boarding){
+        var bfit=boardingFits(d.boarding,item,title,e.time);
+        if(!bfit) return;
+        res.push({d:d,sc:sc+bfit,air:1,spread:false});
+        return;
+      }
       /* v20.4: 같은 날 항공편이 여럿이면 날짜만으로는 못 가른다.
          일정 제목의 편명과 항공권 본문의 편명을 대조해 다르면 붙이지 않는다.
          (헬싱키 출발 JL9359 항목에 오슬로→스타방에르 DY528 항공권이 붙던 문제) */
@@ -4764,8 +4815,9 @@ document.body.addEventListener("click",function(ev){
         rec.type="air";
         if(bp.date) rec.dates=[bp.date];
         if(bp.name) rec.person=bp.name.split(/[\s,\/]+/)[0].replace(/^(.)(.*)$/,function(_,a,b){ return a.toUpperCase()+b.toLowerCase(); });
-        rec.boarding={flight:bp.flight,date:bp.date,from:bp.from,to:bp.to,dep:bp.dep,seat:bp.seat,gate:bp.gate};
+        rec.boarding={flight:bp.flight,flight2:bp.flight2||"",date:bp.date,from:bp.from,to:bp.to,dep:bp.dep,board:bp.board||"",seat:bp.seat,gate:bp.gate,terminal:bp.terminal||""};
         if(bp.flight) rec.keys=(rec.keys||[]).concat([bp.flight.toLowerCase()]);
+          if(bp.flight2) rec.keys=(rec.keys||[]).concat([bp.flight2.toLowerCase()]);
         rec.manual=true;                 /* 판독 결과를 재분석이 덮어쓰지 않게 */
         docsSave(); docsPushOne(id,null); docRenderList(); render();
         if(msg) msg.textContent="✅ ✈️ 항공권 · "+(bp.date||"날짜 미확인")
