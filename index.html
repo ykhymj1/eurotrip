@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v23.6 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v23.7 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -2093,6 +2093,12 @@ function docsForItem(item,dayDate){
     if(dts.indexOf(dayDate)<0) return;
     var fit=docTypeFitsItem(d.type,item,title);
     var sc=docKeyScore(d.keys,title);
+    /* v23.7 사용자가 항목을 지정했으면 그 항목에만 붙인다 (최우선) */
+    if(d.pinItem){
+      if(d.pinItem!==item.id) return;
+      res.push({d:d,sc:sc+100,air:(d.type==="air"?1:0),spread:false});
+      return;
+    }
     if(d.type==="air"){
       if(!fit) return;               /* 항공권: 공항 출발 항목에만 (엄격) */
       /* v23.6 탑승권(QR)은 편명·공항·시각을 대조해 딱 맞는 항목에만 */
@@ -2113,6 +2119,9 @@ function docsForItem(item,dayDate){
         res.push({d:d,sc:sc+20,air:1,spread:false});
         return;
       }
+      /* v23.7 편명·탑승권 정보가 전혀 없는 항공권은 '도착' 항목에 붙이지 않는다
+         (인천→나리타 탑승권이 '나리타공항 도착'에 붙던 문제) */
+      if(!docFl.length&&!d.boarding&&/도착|arrival|arrive/i.test(title)&&!/출발|departure/i.test(title)) return;
       res.push({d:d,sc:sc,air:1,spread:!!d.auto});
       return;
     }
@@ -2165,8 +2174,16 @@ function docRenderList(){
     el.innerHTML='<div class="qr-empty">저장된 티켓·바우처가 없습니다.<br>PDF를 끌어다 놓으면 내용을 읽어 날짜별로 자동 정리합니다.</div>';
     return;
   }
-  var trip=currentTrip(),opts="";
+  var trip=currentTrip(),opts="",itemOpts="";
   if(trip) trip.days.forEach(function(d){ opts+='<option value="'+esc(d.date)+'">'+esc(d.label)+'</option>'; });
+  /* v23.7 항목을 직접 고를 수 있게 — 같은 날 항공편이 여럿일 때 확실한 방법 */
+  if(trip) trip.days.forEach(function(dd){
+    dd.items.forEach(function(it){
+      var e2=effective(it);
+      itemOpts+='<option value="'+esc(dd.date+"|"+it.id)+'">'
+        +esc(dd.label+" "+(e2.time||"")+" "+String(e2.title||"").slice(0,26))+'</option>';
+    });
+  });
   var h="";
   all.forEach(function(d){
     var ti=docTypeInfo(d.type);
@@ -2179,6 +2196,10 @@ function docRenderList(){
         :(d.nosync?'<span style="color:#B04A3A;font-weight:800">⚠ 용량 초과 · 동기화 불가</span>'
                   :'<span style="color:#B04A3A;font-weight:800">☁ 미다운로드</span>'))+'</div>'
       +'<select data-docdate="'+esc(d.id)+'"><option value="">날짜 지정/변경…</option>'+opts+'</select>'
+      +'<select data-docpin="'+esc(d.id)+'" style="margin-top:4px">'
+        +'<option value="">이 문서를 붙일 항목 지정…</option>'
+        +(d.pinItem?'<option value="__clear__">↩ 지정 해제 (자동 매칭)</option>':'')
+        +itemOpts+'</select>'
       +'<select data-doctype="'+esc(d.id)+'" style="margin-top:4px">'
         +'<option value="">종류 지정/변경…</option>'
         +DOC_KIND_OPTS.map(function(t){
@@ -2655,6 +2676,25 @@ document.addEventListener("change",function(ev){
     if(d){
       d.dates=[s.value]; d.date=s.value; d.auto=false; d.manual=true; d.ts=Date.now();
       docsSave(); docsPushOne(d.id,null); docRenderList(); render();
+    }
+  }
+  /* v23.7 항목 직접 지정 — 같은 날 항공편이 여럿일 때 확실하게 */
+  if(s&&s.dataset&&s.dataset.docpin&&s.value){
+    var d3=docsState.items[s.dataset.docpin];
+    if(d3){
+      if(s.value==="__clear__"){
+        delete d3.pinItem;
+        d3.ts=Date.now(); docsSave(); docsPushOne(d3.id,null); docRenderList(); render();
+        var m0=document.getElementById("docMsg");
+        if(m0) m0.textContent="↩ 항목 지정을 해제했습니다 (자동 매칭으로 돌아감)";
+      }else{
+        var pv=String(s.value).split("|");
+        d3.dates=[pv[0]]; d3.date=pv[0]; d3.pinItem=pv[1];
+        d3.auto=false; d3.manual=true; d3.ts=Date.now();
+        docsSave(); docsPushOne(d3.id,null); docRenderList(); render();
+        var m1=document.getElementById("docMsg");
+        if(m1) m1.textContent="📌 지정한 항목에만 붙습니다";
+      }
     }
   }
   /* v23.3 종류 직접 지정 — 자동 분류가 안 되거나 틀렸을 때 */
@@ -4787,7 +4827,7 @@ document.getElementById("saveBtn").addEventListener("click",function(){
 document.body.addEventListener("click",function(ev){
   var dEl=ev.target.closest("[data-del],[data-docdel],[data-qrdel]");
   if(dEl&&delGuard("항목·바우처 삭제")){ ev.preventDefault(); ev.stopPropagation(); return; }
-  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll],[data-qrdate],[data-qropen],[data-qrdel],[data-docdate2],[data-docopen],[data-docdel],[data-docscan],[data-doctype],[data-docmulti],[data-pickopen]");
+  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll],[data-qrdate],[data-qropen],[data-qrdel],[data-docdate2],[data-docopen],[data-docdel],[data-docscan],[data-doctype],[data-docpin],[data-docmulti],[data-pickopen]");
   if(!el) return;
   if(el.dataset.docdate2){ docOpenWallet(el.dataset.docdate2); return; }
   if(el.dataset.pickopen){ docPickHide(); docOpen(el.dataset.pickopen); return; }
