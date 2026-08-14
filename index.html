@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v23.4 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v23.5 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -2093,8 +2093,16 @@ function docsForItem(item,dayDate){
   });
   /* v20.3: 본문을 못 읽어 "항공 있는 날 전부"에 붙은 항공권은,
      날짜가 정확히 특정된 항공권이 같은 항목에 있으면 숨긴다.
-     (8/19에 YPKMLL 2장 + 날짜 미상 2장 = 4장이 붙던 문제) */
-  if(res.some(function(x){ return x.air&&!x.spread; }))
+     (8/19에 YPKMLL 2장 + 날짜 미상 2장 = 4장이 붙던 문제)
+
+     v23.5: 단, 숨기는 근거는 "본문에서 편명을 읽어낸 진짜 e-티켓"뿐이다.
+     탑승권 QR 이미지나 사용자가 직접 지정한 문서는 본문 근거가 없으므로
+     그것 때문에 기존 항공권을 숨기면 안 된다.
+     (QR 탑승권 1장을 올리자 JAL e-티켓 2장이 통째로 사라지던 문제) */
+  var hasSolidAir=res.some(function(x){
+    return x.air&&!x.spread&&x.d&&flightNosIn(x.d.text||"").length;
+  });
+  if(hasSolidAir)
     res=res.filter(function(x){ return !(x.air&&x.spread); });
   return res.sort(function(a,b){ return b.sc-a.sc; }).map(function(x){ return x.d; });
 }
