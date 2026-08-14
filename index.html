@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v23.1 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v23.3 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1907,6 +1907,9 @@ function docHandleFiles(files){
 
 /* ---- 목록 UI ---- */
 var docOverlay=document.getElementById("docOverlay");
+/* v23.3 종류를 직접 고를 수 있게 (워커 판독이 안 될 때도 분류 가능) */
+var DOC_KIND_OPTS=[["air","\u2708\uFE0F 항공권"],["hotel","\uD83C\uDFE8 호텔"],["car","\uD83D\uDE97 렌트카"],["rail","\uD83D\uDE86 기차표"],["tkt","\uD83C\uDF9F 입장권"],["rest","\uD83C\uDF7D 식당예약"],["etc","\uD83D\uDCCE 기타"]];
+
 function docTypeInfo(k){
   return {hotel:{ic:"🏨",label:"호텔"},air:{ic:"✈️",label:"항공권"},car:{ic:"🚗",label:"렌트카"},
           tkt:{ic:"🎟",label:"입장권"},rail:{ic:"🚆",label:"기차표"},rest:{ic:"🍽",label:"식당예약"},
@@ -2116,6 +2119,12 @@ function docRenderList(){
         :(d.nosync?'<span style="color:#B04A3A;font-weight:800">⚠ 용량 초과 · 동기화 불가</span>'
                   :'<span style="color:#B04A3A;font-weight:800">☁ 미다운로드</span>'))+'</div>'
       +'<select data-docdate="'+esc(d.id)+'"><option value="">날짜 지정/변경…</option>'+opts+'</select>'
+      +'<select data-doctype="'+esc(d.id)+'" style="margin-top:4px">'
+        +'<option value="">종류 지정/변경…</option>'
+        +DOC_KIND_OPTS.map(function(t){
+            return '<option value="'+t[0]+'"'+(d.type===t[0]?' selected':'')+'>'+esc(t[1])+'</option>';
+          }).join("")
+      +'</select>'
       +'</div>'
       +'<button class="open" data-docopen="'+esc(d.id)+'">보기</button>'
       +((/^image\//i.test(d.mime||"")&&!(d.dates||[]).length)
@@ -2586,6 +2595,17 @@ document.addEventListener("change",function(ev){
     if(d){
       d.dates=[s.value]; d.date=s.value; d.auto=false; d.manual=true; d.ts=Date.now();
       docsSave(); docsPushOne(d.id,null); docRenderList(); render();
+    }
+  }
+  /* v23.3 종류 직접 지정 — 자동 분류가 안 되거나 틀렸을 때 */
+  if(s&&s.dataset&&s.dataset.doctype&&s.value){
+    var d2=docsState.items[s.dataset.doctype];
+    if(d2){
+      d2.type=s.value; d2.manual=true; d2.av=DOC_AV; d2.ts=Date.now();
+      docsSave(); docsPushOne(d2.id,null); docRenderList(); render();
+      var mm=document.getElementById("docMsg");
+      if(mm) mm.textContent="✅ "+docTypeInfo(s.value).ic+" "+docTypeInfo(s.value).label+"(으)로 지정됨"
+        +((d2.dates||[]).length?"":" — 날짜도 지정해 주세요");
     }
   }
 });
@@ -4521,6 +4541,31 @@ document.getElementById("delLockOff").addEventListener("click",function(){
   delLocked=0; save(LS_DELLOCK,0); delLockRender(); render();
   status("🔓 삭제 잠금 해제됨");
 });
+/* v23.2 워커에 어떤 기능이 배포돼 있는지 실제로 물어본다 (추측 금지) */
+var TINY_PNG="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+function workerProbe(){
+  if(!AI_WORKER) return Promise.resolve("워커 주소 없음");
+  if(!navigator.onLine) return Promise.resolve("오프라인");
+  var out=[];
+  return fetch(AI_WORKER+"/boarding-scan",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({image:TINY_PNG,mime:"image/png",dates:[]})
+  }).then(function(r){
+    return r.text().then(function(t){
+      if(r.status===404) out.push("탑승권 판독: ❌ 없음 (worker.js 배포 필요)");
+      else if(r.ok&&/"ok"/.test(t)) out.push("탑승권 판독: ✅ 있음"+(/"ok":false/.test(t)?(" (응답: "+t.slice(0,90)+")"):""));
+      else out.push("탑승권 판독: ⚠ HTTP "+r.status+" "+t.slice(0,90));
+      return fetch(AI_WORKER+"/place-test?q=test");
+    });
+  }).then(function(r){
+    out.push("구글 리뷰: "+(r&&r.ok?"✅ 있음":"❌ 없음 (구버전 워커)"));
+    return out.join("\n");
+  }).catch(function(e){
+    out.push("워커 연결 실패: "+e.message);
+    return out.join("\n");
+  });
+}
+
 document.getElementById("diagBtn").addEventListener("click",function(){
   var b=loadObj(LS_TRIPBAK,null);
   var lines=[
@@ -4533,7 +4578,12 @@ document.getElementById("diagBtn").addEventListener("click",function(){
     "문서 "+Object.keys(docsState.items).length+"개 · 설명캐시 "+Object.keys(wikiCache).length+"건 · AI "+Object.keys(aiCache).length+"건",
     "좌표검증 "+Object.keys(geoCache).length+"건"
   ];
-  alert("🩺 상태 진단\n\n"+lines.join("\n"));
+  var base="🩺 상태 진단\n\n"+lines.join("\n");
+  status("🩺 워커 점검 중…");
+  workerProbe().then(function(w){
+    alert(base+"\n\n── 워커 ──\n"+w);
+    status("");
+  }).catch(function(){ alert(base); });
   console.log("[진단]",{trips:trips,currentId:currentId,deletedTrips:deletedTrips,backup:b,syncCode:syncCode});
 });
 document.getElementById("tripDedupeBtn").addEventListener("click",function(){
@@ -4657,7 +4707,7 @@ document.getElementById("saveBtn").addEventListener("click",function(){
 document.body.addEventListener("click",function(ev){
   var dEl=ev.target.closest("[data-del],[data-docdel],[data-qrdel]");
   if(dEl&&delGuard("항목·바우처 삭제")){ ev.preventDefault(); ev.stopPropagation(); return; }
-  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll],[data-qrdate],[data-qropen],[data-qrdel],[data-docdate2],[data-docopen],[data-docdel],[data-docscan],[data-docmulti],[data-pickopen]");
+  var el=ev.target.closest("[data-chk],[data-edit],[data-del],[data-add],[data-jump],[data-navg],[data-info],[data-park],[data-fold],[data-nearbyll],[data-qrdate],[data-qropen],[data-qrdel],[data-docdate2],[data-docopen],[data-docdel],[data-docscan],[data-doctype],[data-docmulti],[data-pickopen]");
   if(!el) return;
   if(el.dataset.docdate2){ docOpenWallet(el.dataset.docdate2); return; }
   if(el.dataset.pickopen){ docPickHide(); docOpen(el.dataset.pickopen); return; }
