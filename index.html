@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v24.2 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v24.3 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1803,7 +1803,10 @@ function pdfFirstPageToPng(file,maxW){
       var ctx=cv.getContext("2d");
       ctx.fillStyle="#fff"; ctx.fillRect(0,0,cv.width,cv.height);
       return page.render({canvasContext:ctx,viewport:vp}).promise.then(function(){
-        return cv.toDataURL("image/png");
+        /* v24.3 PNG 는 1~3MB 로 커져 비전 모델이 거부한다 → JPEG 로 줄인다 */
+        var out=cv.toDataURL("image/jpeg",0.82);
+        if(!/^data:image\/jpeg/.test(out)) out=cv.toDataURL("image/png");
+        return out;
       });
     });
 }
@@ -1846,8 +1849,9 @@ function scanBoarding(file,dataUrl){
   /* PDF 는 첫 장을 PNG 로 바꿔 보낸다 (비전 모델이 PDF 를 못 읽는 경우 대비) */
   var isPdfFile=/pdf/i.test(file&&file.type||"")||/^data:application\/pdf/i.test(dataUrl||"");
   var prep=isPdfFile
-    ? pdfFirstPageToPng(file,1400).then(function(png){ return {img:png,mime:"image/png"}; })
-        .catch(function(){ return {img:dataUrl,mime:"application/pdf"}; })
+    ? pdfFirstPageToPng(file,1100).then(function(u){
+        return {img:u,mime:(/^data:image\/jpeg/.test(u)?"image/jpeg":"image/png")};
+      }).catch(function(){ return {img:dataUrl,mime:"application/pdf"}; })
     : Promise.resolve({img:dataUrl,mime:(file&&file.type)||"image/jpeg"});
   return prep.then(function(pp){
     return fetch(AI_WORKER+"/boarding-scan",{
