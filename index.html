@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v23.8 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v24.1 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1862,7 +1862,10 @@ function docAddFile(file){
 
       /* v23.0 이미지면 항상 판독한다.
          파일명에서 날짜가 나와도 그건 촬영 시각일 뿐 탑승 날짜가 아니다. */
-      var needScan=isImg&&!(isReupload&&keepManual);
+      /* v24.1 글자가 이미지로 된 PDF(하나투어 e-티켓 등)는 pdf.js 로 0자가 나온다.
+         → 이미지와 똑같이 판독을 돌린다. */
+      var noText=String(text||"").replace(/\s/g,"").length<40;
+      var needScan=(isImg||(isPdf&&noText))&&!(isReupload&&keepManual);
       var scanStep=needScan
         ? (msg.textContent="🎫 "+file.name+" 탑승권 판독 중…", scanBoarding(file,dataUrl))
         : Promise.resolve(null);
@@ -1872,8 +1875,17 @@ function docAddFile(file){
       var scanNote="";
       return scanStep.then(function(bp){
         if(bp&&bp._err){ scanNote=" · ⚠ 탑승권 판독 실패: "+bp._err; }
-        else if(bp&&bp.kind!=="boarding"&&needScan){ scanNote=" · 🎫 탑승권으로 보이지 않습니다"; }
-        if(bp&&bp.kind==="boarding"&&(bp.flight||bp.date)){
+        else if(bp&&!/^(boarding|ticket|hotel|car|rail)$/.test(bp.kind||"")&&needScan){
+          scanNote=" · 🔎 항공권·바우처로 읽히지 않았습니다";
+        }
+        if(bp&&/^(hotel|car|rail)$/.test(bp.kind||"")){
+          var rc0=docsState.items[id];
+          rc0.type=bp.kind; rc0.manual=true;
+          if(bp.date) rc0.dates=[bp.date];
+          docsSave();
+          scanNote=" · 🔎 "+docTypeInfo(bp.kind).label+"으로 판독";
+        }
+        if(bp&&(bp.kind==="boarding"||bp.kind==="ticket")&&(bp.flight||bp.date)){
           var rec=docsState.items[id];
           rec.type="air";
           if(bp.date) rec.dates=[bp.date];
@@ -2220,7 +2232,7 @@ function docRenderList(){
       +'</select>'
       +'</div>'
       +'<button class="open" data-docopen="'+esc(d.id)+'">보기</button>'
-      +((/^image\//i.test(d.mime||"")&&!(d.dates||[]).length)
+      +(((/^image\//i.test(d.mime||"")||(/pdf/i.test(d.mime||"")&&String(d.text||"").replace(/\s/g,"").length<40))&&!(d.dates||[]).length)
           ? '<button class="rm" data-docscan="'+esc(d.id)+'" title="탑승권 판독">🎫</button>' : '')
       +(delBlocked()?'':'<button class="rm" data-docdel="'+esc(d.id)+'">🗑</button>')
       +'</div>';
@@ -4874,7 +4886,7 @@ document.body.addEventListener("click",function(ev){
         return scanBoarding({type:rec.mime||"image/jpeg"},dataUrl);
       }).then(function(bp){
         if(!bp||bp._err){ if(msg) msg.textContent="⚠ 판독 실패: "+((bp&&bp._err)||"알 수 없음"); return; }
-        if(bp.kind!=="boarding"||(!bp.flight&&!bp.date)){
+        if(!/^(boarding|ticket)$/.test(bp.kind||"")||(!bp.flight&&!bp.date)){
           if(msg) msg.textContent="🎫 탑승권으로 읽히지 않았습니다 — 아래에서 날짜를 직접 지정해 주세요";
           return;
         }
