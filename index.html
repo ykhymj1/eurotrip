@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v24.6 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v24.7 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1393,6 +1393,23 @@ function looksLikeItinerary(text,name){
   return (days>=4&&times>=25);
 }
 
+/* v24.7 미술관·전시 입장권도 "E-Ticket" 이라고 적혀 있어 항공권으로 새어나갔다.
+   항공권이라면 편명(EY123)이나 공항코드 쌍(ICN→AMS)이 반드시 있다. */
+function hasFlightEvidence(text){
+  var t=String(text||"");
+  if(/\b[A-Z]{2}\s?\d{2,4}\b/.test(t)) return true;                 /* 편명 */
+  if(/\b[A-Z]{3}\b[^A-Za-z0-9]{0,12}\b[A-Z]{3}\b/.test(t)
+     &&/공항|airport|departure|arrival|출발|도착/i.test(t)) return true; /* 공항 코드 쌍 */
+  if(/항공사|airline|대한항공|아시아나|진에어|제주항공|티웨이|에어부산|etihad|emirates|qatar|lufthansa|klm|finnair|norwegian/i.test(t)) return true;
+  return false;
+}
+/* 미술관·전시·공연 입장권 신호 */
+function hasAdmissionEvidence(text){
+  /* 항공권에도 흔한 말(ticket type, visitor, valid)은 넣지 않는다 */
+  var t=String(text||"");
+  return /museum|gallery|exhibition|entry\s*slot|opening\s*hours|미술관|박물관|전시관|관람권/i.test(t);
+}
+
 function docType(text,name){
   if(looksLikeItinerary(text,name)) return {k:"etc",ic:"🗓",label:"일정표"};
   /* 파일명 우선 판정: 사용자가 직접 붙인 이름이 가장 확실한 단서 */
@@ -1412,8 +1429,10 @@ function docType(text,name){
     return {k:"rail",ic:"🚆",label:"기차표"};
   if(/티켓|입장권|tickets?\b|admission|pass\b|투어|tour\b/i.test(fn)){
     /* 파일명이 '티켓/투어'라도 본문이 항공권이면 항공권으로 (하나투어 항공 e-티켓 등) */
-    var bodyAir=/e-?ticket|electronic\s*ticket|e-?티켓|전자항공권|항공권|탑승권|boarding\s*(pass|card)|passenger\s*ticket|편명|승객성명/i.test(text||"")
+    /* v24.7 "E-Ticket" 만으로는 항공권이 아니다 — 편명·공항코드가 있어야 한다 */
+    var bodyAirWord=/e-?ticket|electronic\s*ticket|e-?티켓|전자항공권|항공권|탑승권|boarding\s*(pass|card)|passenger\s*ticket|편명|승객성명/i.test(text||"")
       ||AIRLINE_RE.test(text||"");
+    var bodyAir=bodyAirWord&&hasFlightEvidence(text)&&!hasAdmissionEvidence(text);
     if(bodyAir) return {k:"air",ic:"✈️",label:"항공권"};
     return {k:"tkt",ic:"🎟",label:"입장권"};
   }
@@ -1429,15 +1448,21 @@ function docType(text,name){
     air: cnt(/e-?ticket|electronic\s*ticket|e-?티켓|전자항공권|itinerary.{0,6}receipt|항공권|passenger\s*ticket|flight\s*no|편명|탑승권|boarding\s*(pass|card)|ticket\s*(number|&\s*receipt)|reservation\s*code|pnr|승객성명|여객\s*성명/g)*3
          +(AIRLINE_RE.test(raw)?3:0)
          +(/\b[A-Z]{2}\s?\d{3,4}\b/.test(raw)?2:0),
+    /* v24.7 편명·공항코드가 전혀 없으면 항공권일 수 없다 (미술관 E-Ticket 오분류 차단) */
+    _airEvid: hasFlightEvidence(raw),
     hotel: cnt(/booking\s*confirmation|voucher|체크인|arrival\s*:|departure\s*:/g)*3
            +cnt(/호텔|숙소|agoda|booking\.com|hotel|resort|객실|숙박|inn\b|number\s*of\s*rooms|room\s*type|guest\s*name/g)*2
            +cntRaw(/ドーミーイン|ホテル|旅館|宿泊|ご予約|チェックイン/g)*3,
-    tkt: cnt(/gondola|pursuit|admission|입장권|입장료|attraction|icefield|skywalk|valid\s*from|관람권|이용권|e-?voucher/g)*2,
+    /* v24.7 미술관·전시 신호 보강 */
+    tkt: cnt(/gondola|pursuit|admission|입장권|입장료|attraction|icefield|skywalk|valid\s*from|관람권|이용권|e-?voucher/g)*2
+         +cnt(/museum|gallery|exhibition|entry\s*slot|opening\s*hours|미술관|박물관|전시관|관람권|관람\s*시간|입장\s*시간/g)*3,
     rail: (RAIL_BODY_RE.test(raw)?4:0)+cnt(/기차|열차|철도|승차권|신칸센|train|railway|renfe|trenitalia|eurostar|amtrak|deutsche\s*bahn/g)*2,
     rest: cnt(/restaurant|레스토랑|식당|dining|resy|opentable|table\s*for|party\s*of|예약\s*번호.*(?:석|테이블)/g)*3
           +cntRaw(/レストラン|お食事|ご予約席/g)*3,
     etc: 0
   };
+  if(!sc._airEvid) sc.air=0;          /* 근거 없는 항공 점수는 버린다 */
+  delete sc._airEvid;
   var best="etc",bv=0;
   Object.keys(sc).forEach(function(k){ if(sc[k]>bv){ bv=sc[k]; best=k; } });
   if(bv===0) best="etc";
