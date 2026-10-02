@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v25.4 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v25.6 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1308,6 +1308,10 @@ function idbDel(k){
 var DOC_MONTHS={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
 function extractDates(text){
   var out=[],m;
+  /* v25.6 Gmail 인쇄 PDF 의 일본어는 月·日 가 일반 한자가 아니라
+     康熙부수 문자(⽉ U+2F49 / ⽇ U+2F47)로 들어오는 경우가 있다.
+     NFKC 로 정규화하면 일반 한자·반각으로 바뀌어 아래 정규식에 걸린다. */
+  try{ if(text&&text.normalize) text=text.normalize("NFKC"); }catch(e){}
   function push(y,mo,d,idx){
     if(!y||!mo||!d||mo<1||mo>12||d<1||d>31) return;
     out.push({date:y+"-"+pad2(mo)+"-"+pad2(d),idx:idx});
@@ -1456,7 +1460,10 @@ function docType(text,name){
     /* v24.7 미술관·전시 신호 보강 */
     tkt: cnt(/gondola|pursuit|admission|입장권|입장료|attraction|icefield|skywalk|valid\s*from|관람권|이용권|e-?voucher/g)*2
          +cnt(/museum|gallery|exhibition|entry\s*slot|opening\s*hours|미술관|박물관|전시관|관람권|관람\s*시간|입장\s*시간/g)*3,
-    rail: (RAIL_BODY_RE.test(raw)?4:0)+cnt(/기차|열차|철도|승차권|신칸센|train|railway|renfe|trenitalia|eurostar|amtrak|deutsche\s*bahn/g)*2,
+    rail: (RAIL_BODY_RE.test(raw)?4:0)+cnt(/기차|열차|철도|승차권|신칸센|train|railway|renfe|trenitalia|eurostar|amtrak|deutsche\s*bahn/g)*2
+          /* v25.6 일본 JR 예약메일(えきねっと)이 "ご予約" 때문에 호텔로 분류됐다.
+             호텔 점수는 그대로 두고 기차 신호만 보강한다. */
+          +cntRaw(/列車|乗車日|乗車券|指定席|自由席|特急|えきねっと|きっぷ|新幹線|JR東日本|エクスプレス/g)*3,
     rest: cnt(/restaurant|레스토랑|식당|dining|resy|opentable|table\s*for|party\s*of|예약\s*번호.*(?:석|테이블)/g)*3
           +cntRaw(/レストラン|お食事|ご予約席/g)*3,
     etc: 0
@@ -1509,7 +1516,8 @@ function docTypeFitsItem(type,item,title){
     if(isCheckout||isRental) return false;
     return isHotelItem;
   }
-  if(type==="rest") return /식당|레스토랑|restaurant|점심|저녁|아침|dining|맛집|스시|초밥|이자카야|시장/i.test(title);
+  /* v25.6 일정 제목이 일본어 상호(焼肉関本恭平)면 한글 키워드로는 못 잡는다 */
+  if(type==="rest") return /식당|레스토랑|restaurant|점심|저녁|아침|dining|맛집|스시|초밥|이자카야|시장|야키니쿠|라멘|우동|소바|덮밥|회전초밥|焼肉|寿司|鮨|割烹|居酒屋|食堂|レストラン|ラーメン|うどん|そば|天ぷら|定食|焼鳥|しゃぶしゃぶ|すき焼き|奈る実/i.test(title);
   if(type==="rail"){
     if(isCheckout||isRental||isHotelItem) return false;
     return /기차|열차|철도|역\b|驛|station|Bahnhof|Hbf|gare|estaci|stazione|승차|탑승|이동|출발|도착|신칸센|shinkansen|train|rail/i.test(title);
@@ -1924,11 +1932,11 @@ function docAddFile(file){
       var an=analyzeDoc(text,file.name,trip);
       /* v20.2: 같은 이름의 바우처를 다시 올리면 새 항목을 만들지 않고 그 항목을 갱신
          (동기화에 실패했던 파일을 다시 올려 고칠 수 있게) */
-      var id=null, keepDates=null, keepManual=false;
+      var id=null, keepDates=null, keepManual=false, keepPin="";
       Object.keys(docsState.items).forEach(function(k){
         var r=docsState.items[k];
         if(!id&&r&&r.name===file.name&&(!r.tripId||!trip||r.tripId===trip.id)){
-          id=k; keepDates=r.dates; keepManual=!!r.manual;
+          id=k; keepDates=r.dates; keepManual=!!r.manual; keepPin=r.pinItem||"";
         }
       });
       var isReupload=!!id;
@@ -1943,6 +1951,11 @@ function docAddFile(file){
       };
       /* 사용자가 직접 지정했던 날짜는 유지 */
       if(isReupload&&keepManual&&keepDates&&keepDates.length) docsState.items[id].dates=keepDates;
+      /* v25.6 같은 파일을 다시 올리면 직접 지정했던 항목이 사라졌다.
+         지정한 항목이 지금 일정에도 남아 있을 때만 그대로 되살린다. */
+      if(isReupload&&keepPin&&trip&&trip.days.some(function(dd){
+        return (dd.items||[]).some(function(it0){ return it0.id===keepPin; }); }))
+        docsState.items[id].pinItem=keepPin;
       docsSave();
 
       /* v23.0 이미지면 항상 판독한다.
@@ -1950,7 +1963,11 @@ function docAddFile(file){
       /* v24.1 글자가 이미지로 된 PDF(하나투어 e-티켓 등)는 pdf.js 로 0자가 나온다.
          → 이미지와 똑같이 판독을 돌린다. */
       var noText=String(text||"").replace(/\s/g,"").length<40;
-      var needScan=(isImg||(isPdf&&noText))&&!(isReupload&&keepManual);
+      /* v25.6 머리말만 글자이고 본문(날짜·좌석)이 이미지인 PDF가 있다.
+         (코니카미놀타 플라네타리움 티켓 = 104자라 40자 기준을 넘어 판독이 안 됐다)
+         글자가 적은데 날짜를 하나도 못 읽었으면 이미지로 보고 판독한다. */
+      var noDate=!(an.dates&&an.dates.length)&&String(text||"").replace(/\s/g,"").length<1500;
+      var needScan=(isImg||(isPdf&&(noText||noDate)))&&!(isReupload&&keepManual);
       var scanStep=needScan
         ? (msg.textContent="🎫 "+file.name+" 탑승권 판독 중…", scanBoarding(file,dataUrl))
         : Promise.resolve(null);
@@ -1978,8 +1995,16 @@ function docAddFile(file){
         if(bp&&(bp.kind==="boarding"||bp.kind==="ticket")&&!isAirDoc&&bp.date){
           var rt=docsState.items[id];
           rt.type="tkt"; rt.manual=true; rt.dates=[bp.date];
+          /* v25.6 입장권은 상호가 일본어·현지어라 제목 매칭이 안 된다.
+             판독한 시각과 똑같은 시각의 항목이 그날 딱 하나면 그 항목에 지정한다. */
+          if(bp.dep&&trip){
+            var dayT=trip.days.find(function(x){ return x.date===bp.date; });
+            var hitT=dayT?(dayT.items||[]).filter(function(it1){
+              return String(effective(it1).time||"").slice(0,5)===String(bp.dep).slice(0,5); }):[];
+            if(hitT.length===1){ rt.pinItem=hitT[0].id; }
+          }
           docsSave();
-          scanNote=" · 🎟 입장권으로 판독 ("+bp.date+")";
+          scanNote=" · 🎟 입장권으로 판독 ("+bp.date+(rt.pinItem?" · 📌 "+bp.dep:"")+")";
         }
         if(isAirDoc&&(bp.flight||bp.date)){
           var rec=docsState.items[id];
