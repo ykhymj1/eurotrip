@@ -288,7 +288,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v25.6 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v25.7 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -1327,9 +1327,24 @@ function extractDates(text){
   /* 일본어: 2026年8月22日 */
   var reJ=/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g;
   while((m=reJ.exec(text))!==null) push(+m[1],+m[2],+m[3],m.index);
+  /* v25.7 2026OCT03 (연-월-일) — 파라타항공 e-티켓.
+     아래 re2 로 읽으면 "26일 + 연도 03"이 되어 2003-10-26 이 나온다.
+     구분기호 없는 4자리 연도가 월 앞에 붙은 경우만 먼저 잡는다. */
+  var re2a=/(\d{4})\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Za-z]*\.?\s*(\d{1,2})\b/gi;
+  var seen2a={};
+  while((m=re2a.exec(text))!==null){
+    seen2a[m.index]=m[0].length;
+    push(+m[1],DOC_MONTHS[m[2].toLowerCase().slice(0,3)],+m[3],m.index);
+  }
   /* 15AUG2026 / 15 AUG 2026 */
   var re2=/(\d{1,2})\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Za-z]*\.?,?\s*(\d{4})/gi;
-  while((m=re2.exec(text))!==null) push(+m[3],DOC_MONTHS[m[2].toLowerCase()],+m[1],m.index);
+  while((m=re2.exec(text))!==null){
+    /* 위에서 연-월-일로 이미 읽은 자리는 건너뛴다 (2026OCT03 → 26/OCT/03 중복 방지) */
+    var dup2=false, i2;
+    for(i2 in seen2a) if(m.index>=+i2&&m.index<+i2+seen2a[i2]) dup2=true;
+    if(dup2) continue;
+    push(+m[3],DOC_MONTHS[m[2].toLowerCase()],+m[1],m.index);
+  }
   /* August 16, 2026 */
   var re3=/(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Za-z]*\.?\s*(\d{1,2})\s*,?\s*(\d{4})/gi;
   while((m=re3.exec(text))!==null) push(+m[3],DOC_MONTHS[m[1].toLowerCase().slice(0,3)],+m[2],m.index);
@@ -1525,6 +1540,33 @@ function docTypeFitsItem(type,item,title){
   if(type==="tkt") return !isCheckout&&!isRental&&!isHotelItem;
   return !isCheckout;
 }
+/* ===== v25.7 시각 매칭 =====
+   예약 문서에는 날짜뿐 아니라 시각이 거의 항상 적혀 있다
+   (타베로그 18:30, JR 11時44分, e-티켓 15:20, 플라네타리움 16:00).
+   상호가 일본어라 이름이 안 겹쳐도 "같은 날 같은 시각"이면 거의 확실하다.
+   단, 종류가 맞는(fit) 항목에만 가산해 호텔 바우처가 엉뚱한 항목으로
+   끌려가지 않게 한다. */
+function docTimes(text){
+  var t=String(text||"");
+  try{ if(t.normalize) t=t.normalize("NFKC"); }catch(e){}
+  var out=[],m,re=/(?:^|[^0-9])([01]?[0-9]|2[0-3])\s*(?::|시|時)\s*([0-5][0-9])\s*분?/g;
+  while((m=re.exec(t))!==null){
+    var v=("0"+m[1]).slice(-2)+":"+m[2];
+    if(out.indexOf(v)<0) out.push(v);
+  }
+  return out;
+}
+var DOC_TIME_CACHE={};
+function docTimesOf(d){
+  var k=(d&&d.id||"")+"|"+(d&&d.ts||0);
+  if(!DOC_TIME_CACHE[k]) DOC_TIME_CACHE[k]=docTimes((d&&d.text)||"");
+  return DOC_TIME_CACHE[k];
+}
+function docTimeHit(d,item){
+  var it=String((item&&effective(item).time)||"").slice(0,5);
+  if(!it) return 0;
+  return docTimesOf(d).indexOf(it)>=0?50:0;
+}
 /* 키워드 겹침 점수 (공백·기호 무시 — pdf.js가 글자 사이에 공백을 넣는 경우 대응) */
 function normKey(s){ return String(s||"").toLowerCase().replace(/[\s·・()（）\[\]{}<>「」【】,.:;!?"'\-_/\\]/g,""); }
 function docKeyScore(keys,title){
@@ -1546,7 +1588,7 @@ function docBestItemId(doc,day){
     if(!fit&&sc<4) return;            /* 타입도 이름도 안 맞으면 제외 */
     /* 타입 일치 가산점 — 이름이 달라도(일정: "룩셈부르크 호텔", 문서: "Hotel Le Place")
        날짜+종류가 맞으면 연결되도록 */
-    var total=(fit?10:0)+sc;
+    var total=(fit?10:0)+sc+(fit?docTimeHit(doc,it):0);
     if(total>bestSc){ bestSc=total; best=it.id; }
   });
   return {id:best,score:bestSc};
@@ -1967,7 +2009,10 @@ function docAddFile(file){
          (코니카미놀타 플라네타리움 티켓 = 104자라 40자 기준을 넘어 판독이 안 됐다)
          글자가 적은데 날짜를 하나도 못 읽었으면 이미지로 보고 판독한다. */
       var noDate=!(an.dates&&an.dates.length)&&String(text||"").replace(/\s/g,"").length<1500;
-      var needScan=(isImg||(isPdf&&(noText||noDate)))&&!(isReupload&&keepManual);
+      /* v25.7 직접 지정한 문서는 판독으로 덮어쓰지 않는다.
+         단, 날짜가 하나도 없으면 덮어쓸 것도 없으므로 판독을 허용한다. */
+      var needScan=(isImg||(isPdf&&(noText||noDate)))
+                   &&!(isReupload&&keepManual&&keepDates&&keepDates.length);
       var scanStep=needScan
         ? (msg.textContent="🎫 "+file.name+" 탑승권 판독 중…", scanBoarding(file,dataUrl))
         : Promise.resolve(null);
@@ -2001,7 +2046,7 @@ function docAddFile(file){
             var dayT=trip.days.find(function(x){ return x.date===bp.date; });
             var hitT=dayT?(dayT.items||[]).filter(function(it1){
               return String(effective(it1).time||"").slice(0,5)===String(bp.dep).slice(0,5); }):[];
-            if(hitT.length===1){ rt.pinItem=hitT[0].id; }
+            if(hitT.length===1&&!rt.pinItem){ rt.pinItem=hitT[0].id; }
           }
           docsSave();
           scanNote=" · 🎟 입장권으로 판독 ("+bp.date+(rt.pinItem?" · 📌 "+bp.dep:"")+")";
@@ -2332,7 +2377,7 @@ function docsForItem(item,dayDate){
     /* v22.0 일정표는 개별 항목에 붙이지 않는다 (항공권 버튼에 끼어들던 문제) */
     if(d.type==="etc"&&/일정표|itinerary|여행\s*계획|\d+박\s*\d+일/i.test(d.name||"")) return;
     if((d.type==="tkt"||d.type==="etc")&&sc<4&&!fit) return;
-    res.push({d:d,sc:sc});
+    res.push({d:d,sc:sc+(fit?docTimeHit(d,item):0)});
   });
   /* v20.3: 본문을 못 읽어 "항공 있는 날 전부"에 붙은 항공권은,
      날짜가 정확히 특정된 항공권이 같은 항목에 있으면 숨긴다.
