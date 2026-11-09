@@ -289,7 +289,7 @@ footer{text-align:center;color:var(--sub);font-size:11.5px;padding:10px 0 30px;}
 
 <main id="main"></main>
 
-<footer>v25.9 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
+<footer>v25.10 · 🎫 탑승권 자동분류 · 🔒 삭제 잠금 · 🍽 식당 후기 · 🧭 명칭우선 네비(좌표 대조) · 🚗 렌트카 구간매칭 · 🚆 기차표 인식 · ✈️ 일정표 편명 추적 · ✈️ 항공편 추적 · ℹ️ 설명 미리받기 · 📎 바우처 보관함 · 🎫 QR · 🔎 PDF 분석 · 🚇 대중교통 · 🧭 동선 UI · 🤖 AI 요약 · ☁ 동기화 · PDF는 저장되지 않음 (일정 텍스트만 이 기기에 보관) · 같은 이름 PDF 재업로드 = 일정 업데이트 · PC에선 PDF를 끌어다 놓아도 됩니다</footer>
 
 <div id="dropZone"><div class="box">📄 PDF를 여기에 놓으세요<br><span style="font-size:14px;font-weight:600">일정표가 자동 등록됩니다</span></div></div>
 
@@ -745,7 +745,7 @@ function navTargets(item){
   var nm=placeQuery(item);
   if(item.lat!=null){
     /* 좌표가 "주차장" 같은 하위 지점에서 왔으면 제목 명칭으로 검색하면 안 됨 */
-    if(item.coordSub) return {ll:item.lat+","+item.lng,q:null,name:null,glabel:null,nname:nm};
+    if(item.coordSub) return {ll:item.lat+","+item.lng,q:null,name:null,glabel:null,nname:(krPlaceName(item)||nm)};
     /* v20.5 지점형(주차장·전망대·입구·들머리)은 좌표만 쓴다.
        지도 데이터가 주차장을 제대로 찾아도 그 이름이 "Preikestolen"처럼
        인근 명소와 같아서, 구글에 넘기면 명소(Pulpit Rock)로 안내된다.
@@ -754,12 +754,12 @@ function navTargets(item){
     /* 추출 명칭이 영문이어도 원 제목에 "전망대·주차장"이 있으면 지점형으로 본다
        ("스테가스타인 전망대(Stegastein)" → Stegastein 은 마을 이름이라 위치가 어긋남) */
     if(GEO_POINT_RE.test(nm||"")||GEO_POINT_RE.test(rawT))
-      return {ll:item.lat+","+item.lng,q:null,name:null,glabel:null,nname:nm};
+      return {ll:item.lat+","+item.lng,q:null,name:null,glabel:null,nname:(krPlaceName(item)||nm)};
     /* 렌트카 영업소도 좌표가 있으면 좌표가 가장 정확 */
     if(carEvent(rawT)!==0)
-      return {ll:item.lat+","+item.lng,q:null,name:null,glabel:null,nname:nm};
+      return {ll:item.lat+","+item.lng,q:null,name:null,glabel:null,nname:(krPlaceName(item)||nm)};
     var g=geoVerified(item,nm);
-    return {ll:item.lat+","+item.lng,q:null,name:nm,glabel:g,nname:nm};
+    return {ll:item.lat+","+item.lng,q:null,name:nm,glabel:g,nname:(krPlaceName(item)||nm)};
   }
   /* 좌표가 없는데 쓸 만한 장소 이름도 없으면 → 추측하지 않고 네비 버튼 없음
      (예: "하이킹 종료, 주차장 복귀", "기상, 짐 정리", "현지 슈퍼 2곳 중 한곳") */
@@ -1078,6 +1078,9 @@ var NAVER_APPNAME=(function(){
 })();
 /* v25.9 네이버 검색어 정리: 구글식 "이름, 시, 대한민국" 라벨을 쓰지 않고 장소명만,
    PDF 추출로 숫자 앞뒤에 생긴 공백 제거 ("경희궁의아침 2 단지" → "경희궁의아침2단지") */
+/* v25.10 nname 은 국내 표기를 보존한 장소명(krPlaceName)이다.
+   placeQuery 는 해외용이라 "…해상케이블카 전곡정류장"에서 '케이블카'를 떼어내
+   네이버에서 "조건에 맞는 업체가 없습니다"가 되던 것을 막는다. */
 function naverName(t){
   var s=(t&&(t.nname||t.name||t.q||t.glabel))||"";
   s=String(s).split(/\s*[,，]\s*/)[0];
